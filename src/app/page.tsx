@@ -45,11 +45,6 @@ export default function Home() {
   const [newItemCategory, setNewItemCategory] = useState<'veg' | 'fruit'>('veg')
   const [newItemUnit, setNewItemUnit] = useState('박스')
 
-  // 브라우저 탭 이름 설정
-  useEffect(() => {
-    document.title = '칠곡농협 농산팀 실시간 발주 시스템'
-  }, [])
-
   useEffect(() => {
     const savedName = localStorage.getItem('ordererName')
     if (savedName) {
@@ -84,7 +79,6 @@ export default function Home() {
     else if (data) setOrderHistory(data)
   }
 
-  // 초기 로딩 및 Supabase 실시간(Realtime) 구독 설정
   useEffect(() => {
     fetchItems()
     fetchOrderHistory()
@@ -94,16 +88,12 @@ export default function Home() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
-        () => {
-          fetchOrderHistory()
-        }
+        () => { fetchOrderHistory() }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items' },
-        () => {
-          fetchItems()
-        }
+        () => { fetchItems() }
       )
       .subscribe()
 
@@ -130,10 +120,7 @@ export default function Home() {
       if (hasConflict) {
         alert('⚠️ 채소와 과일은 동시에 담을 수 없습니다!\n기존 선택이 초기화되고 새로 선택한 품목으로 전환됩니다.')
         setOrderInputs({
-          [itemId]: {
-            checked: true,
-            quantity: 1,
-          },
+          [itemId]: { checked: true, quantity: 1 },
         })
         return
       }
@@ -191,7 +178,6 @@ export default function Home() {
     })
 
     const { error } = await supabase.from('orders').insert(ordersData)
-
     setLoading(false)
 
     if (error) {
@@ -269,7 +255,7 @@ export default function Home() {
 
     setOrderInputs(newInputs)
     setMainTab('WRITE')
-    alert('📝 해당 발주 기록을 작성 화면으로 불러왔습니다!\n수량을 수정하거나 품목을 추가해서 다시 등록할 수 있습니다.')
+    alert('📝 해당 발주 기록을 작성 화면으로 불러왔습니다!')
   }
 
   const handleDeleteOrderBatch = async (itemsList: OrderRecord[]) => {
@@ -309,7 +295,7 @@ export default function Home() {
 
   const formatDateTime = (isoString: string) => {
     const date = new Date(isoString)
-    date.setHours(date.getHours() + 9) // UTC+9 한국 시간 보정
+    date.setHours(date.getHours() + 9)
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   }
 
@@ -325,9 +311,7 @@ export default function Home() {
 
   const groupedOrders = filteredOrderHistory.reduce((acc, order) => {
     const timeKey = formatDateTime(order.created_at)
-    if (!acc[timeKey]) {
-      acc[timeKey] = []
-    }
+    if (!acc[timeKey]) acc[timeKey] = []
     acc[timeKey].push(order)
     return acc
   }, {} as Record<string, OrderRecord[]>)
@@ -346,14 +330,12 @@ export default function Home() {
     })
 
     navigator.clipboard.writeText(text)
-    alert(`📋 [${vendorName}] 발주 텍스트가 클립보드에 복사되었습니다!\n카카오톡에 붙여넣기 하세요.`)
+    alert(`📋 [${vendorName}] 발주 텍스트가 클립보드에 복사되었습니다!`)
   }
 
   const uniqueItemsMap = new Map()
   items.forEach(item => {
-    if (!uniqueItemsMap.has(item.name)) {
-      uniqueItemsMap.set(item.name, item)
-    }
+    if (!uniqueItemsMap.has(item.name)) uniqueItemsMap.set(item.name, item)
   })
   const uniqueItems = Array.from(uniqueItemsMap.values())
 
@@ -361,10 +343,7 @@ export default function Home() {
     const cat = item.category?.toLowerCase() || ''
     const matchesSearch = searchQuery.trim() === '' || item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
 
-    if (searchQuery.trim() !== '') {
-      return matchesSearch
-    }
-
+    if (searchQuery.trim() !== '') return matchesSearch
     if (subTab === 'VEG') return cat === 'veg' || cat === 'vegetable'
     if (subTab === 'FRUIT') return cat === 'fruit' || cat === 'fruits'
     return false
@@ -403,20 +382,13 @@ export default function Home() {
     const isFruit = cat.includes('fruit')
 
     if (!acc[weekKey]) {
-      acc[weekKey] = {
-        totalQty: 0,
-        orderCount: 0,
-        vendors: {}
-      }
+      acc[weekKey] = { totalQty: 0, orderCount: 0, vendors: {} }
     }
     acc[weekKey].totalQty += order.quantity
     acc[weekKey].orderCount += 1
 
     if (!acc[weekKey].vendors[vendor]) {
-      acc[weekKey].vendors[vendor] = {
-        vegItems: {},
-        fruitItems: {}
-      }
+      acc[weekKey].vendors[vendor] = { vegItems: {}, fruitItems: {} }
     }
 
     const targetMap = isFruit ? acc[weekKey].vendors[vendor].fruitItems : acc[weekKey].vendors[vendor].vegItems
@@ -426,14 +398,7 @@ export default function Home() {
     targetMap[order.item_name].qty += order.quantity
 
     return acc
-  }, {} as Record<string, {
-    totalQty: number;
-    orderCount: number;
-    vendors: Record<string, {
-      vegItems: Record<string, { qty: number; unit: string }>;
-      fruitItems: Record<string, { qty: number; unit: string }>;
-    }>;
-  }>)
+  }, {} as Record<string, any>)
 
   const sortedWeeklyStats = Object.entries(weeklyStats).sort((a, b) => b[0].localeCompare(a[0]))
 
@@ -446,13 +411,6 @@ export default function Home() {
 
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
-      {/* 💡 카카오톡 미리보기용 메타 태그 (Head 영역 대용) */}
-      <head>
-        <title>칠곡농협 농산팀 실시간 발주 시스템</title>
-        <meta property="og:title" content="칠곡농협 농산팀 실시간 발주 시스템" />
-        <meta property="og:description" content="현장 요청부터 협력업체 문자 발송까지 한번에" />
-      </head>
-
       <div className="text-center my-6">
         <h1 className="text-2xl font-extrabold text-gray-900">🛒 칠곡농협 농산팀 실시간 발주 시스템</h1>
         <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계 및 품목 추가를 할 수 있습니다.</p>
@@ -787,7 +745,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📊 주별 통계 보기 탭 */}
       {mainTab === 'STATS' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center mb-2">
@@ -835,7 +792,7 @@ export default function Home() {
                       </div>
 
                       <div className="space-y-3">
-                        {Object.entries(data.vendors).map(([vendorName, vendorData]) => {
+                        {Object.entries(data.vendors).map(([vendorName, vendorData]: [string, any]) => {
                           const hasVeg = Object.keys(vendorData.vegItems).length > 0
                           const hasFruit = Object.keys(vendorData.fruitItems).length > 0
 
@@ -854,7 +811,7 @@ export default function Home() {
                                     <p className="text-[10px] text-gray-400 py-1 text-center">내역 없음</p>
                                   ) : (
                                     <div className="space-y-1">
-                                      {Object.entries(vendorData.vegItems).map(([itemName, itemInfo]) => (
+                                      {Object.entries(vendorData.vegItems).map(([itemName, itemInfo]: [string, any]) => (
                                         <div key={itemName} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-green-100 text-[11px]">
                                           <span className="font-bold text-gray-800 truncate mr-1">· {itemName}</span>
                                           <span className="font-extrabold text-green-700 shrink-0">{itemInfo.qty}{itemInfo.unit}</span>
@@ -872,7 +829,7 @@ export default function Home() {
                                     <p className="text-[10px] text-gray-400 py-1 text-center">내역 없음</p>
                                   ) : (
                                     <div className="space-y-1">
-                                      {Object.entries(vendorData.fruitItems).map(([itemName, itemInfo]) => (
+                                      {Object.entries(vendorData.fruitItems).map(([itemName, itemInfo]: [string, any]) => (
                                         <div key={itemName} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-red-100 text-[11px]">
                                           <span className="font-bold text-gray-800 truncate mr-1">· {itemName}</span>
                                           <span className="font-extrabold text-red-600 shrink-0">{itemInfo.qty}{itemInfo.unit}</span>
@@ -895,7 +852,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ⚙️ 품목 관리 탭 */}
       {mainTab === 'MANAGE' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
