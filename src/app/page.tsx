@@ -79,6 +79,12 @@ export default function Home() {
     else if (data) setOrderHistory(data)
   }
 
+  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'MANAGE') => {
+    setMainTab(tab)
+    fetchItems()
+    fetchOrderHistory()
+  }
+
   useEffect(() => {
     fetchItems()
     fetchOrderHistory()
@@ -186,7 +192,7 @@ export default function Home() {
     } else {
       alert('발주 요청이 성공적으로 등록되었습니다!')
       setOrderInputs({})
-      setMainTab('BOARD')
+      handleTabChange('BOARD')
     }
   }
 
@@ -226,6 +232,8 @@ export default function Home() {
     if (error) {
       console.error('업체 지정 에러:', error)
       alert('업체 지정 중 오류가 발생했습니다.')
+    } else {
+      fetchOrderHistory()
     }
   }
 
@@ -254,7 +262,7 @@ export default function Home() {
     }
 
     setOrderInputs(newInputs)
-    setMainTab('WRITE')
+    handleTabChange('WRITE')
     alert('📝 해당 발주 기록을 작성 화면으로 불러왔습니다!')
   }
 
@@ -270,6 +278,8 @@ export default function Home() {
     if (error) {
       console.error('삭제 에러:', error)
       alert('삭제 중 오류가 발생했습니다.')
+    } else {
+      fetchOrderHistory()
     }
   }
 
@@ -285,6 +295,8 @@ export default function Home() {
     if (error) {
       console.error('상태 변경 에러:', error)
       alert('상태 변경 중 오류가 발생했습니다.')
+    } else {
+      fetchOrderHistory()
     }
   }
 
@@ -418,7 +430,8 @@ export default function Home() {
 
       <div className="grid grid-cols-4 gap-1.5 mb-6">
         <button
-          onClick={() => setMainTab('WRITE')}
+          type="button"
+          onClick={() => handleTabChange('WRITE')}
           className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'WRITE' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
@@ -426,7 +439,8 @@ export default function Home() {
           ✍️ 발주작성
         </button>
         <button
-          onClick={() => setMainTab('BOARD')}
+          type="button"
+          onClick={() => handleTabChange('BOARD')}
           className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'BOARD' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
@@ -434,7 +448,8 @@ export default function Home() {
           📋 발주 확인 !
         </button>
         <button
-          onClick={() => setMainTab('STATS')}
+          type="button"
+          onClick={() => handleTabChange('STATS')}
           className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'STATS' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
@@ -442,7 +457,8 @@ export default function Home() {
           📊 주별통계
         </button>
         <button
-          onClick={() => setMainTab('MANAGE')}
+          type="button"
+          onClick={() => handleTabChange('MANAGE')}
           className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
@@ -476,6 +492,7 @@ export default function Home() {
 
           <div className="flex bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner">
             <button
+              type="button"
               onClick={() => { setSearchQuery(''); setSubTab('VEG'); }}
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
                 subTab === 'VEG' && searchQuery === '' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
@@ -484,6 +501,7 @@ export default function Home() {
               🥦 채소류
             </button>
             <button
+              type="button"
               onClick={() => { setSearchQuery(''); setSubTab('FRUIT'); }}
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
                 subTab === 'FRUIT' && searchQuery === '' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
@@ -538,6 +556,7 @@ export default function Home() {
 
           <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur border-t shadow-lg flex justify-center">
             <button
+              type="button"
               onClick={handleSubmitOrder}
               disabled={loading}
               className="w-full max-w-md bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 flex items-center justify-center space-x-2"
@@ -561,6 +580,7 @@ export default function Home() {
 
           <div className="flex bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner">
             <button
+              type="button"
               onClick={() => setBoardSubTab('VEG')}
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
                 boardSubTab === 'VEG' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
@@ -569,6 +589,7 @@ export default function Home() {
               🥦 채소류 발주 관리
             </button>
             <button
+              type="button"
               onClick={() => setBoardSubTab('FRUIT')}
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
                 boardSubTab === 'FRUIT' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
@@ -630,12 +651,14 @@ export default function Home() {
 
                       <div className="flex flex-wrap gap-1.5">
                         <button
+                          type="button"
                           onClick={() => handleLoadForEdit(itemsList)}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all"
                         >
                           ✏️ 수정/불러오기
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleToggleComplete(itemsList, isCompleted)}
                           className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all ${
                             isCompleted ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -644,6 +667,7 @@ export default function Home() {
                           {isCompleted ? '↩️ 취소' : '✅ 완료'}
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDeleteOrderBatch(itemsList)}
                           className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all"
                         >
@@ -668,6 +692,7 @@ export default function Home() {
 
                             {!isUnassigned && (
                               <button
+                                type="button"
                                 onClick={() => handleCopyVendorText(vendorName, vendorItems)}
                                 className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1"
                               >
@@ -682,28 +707,31 @@ export default function Home() {
                               const currentV = order.vendor
 
                               return (
-                                <div key={order.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-sm py-2 px-2 rounded bg-white border border-gray-200/60 gap-2">
+                                <div key={order.id} className="flex flex-col md:flex-row justify-between items-start md:items-center text-sm py-2.5 px-3 rounded-xl bg-white border border-gray-200/80 gap-3">
                                   <div className="flex items-center space-x-2">
                                     <span className="font-medium text-gray-800">· {order.item_name}</span>
                                     <span className="font-bold text-indigo-600">{order.quantity}{unit}</span>
                                   </div>
 
-                                  <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-lg">
-                                    <span className="text-[10px] font-bold text-gray-500 mr-1">업체지정:</span>
+                                  {/* 터치 영역을 키우고 모바일에서 확실히 눌리도록 개선된 업체 지정 버튼 그룹 */}
+                                  <div className="flex items-center space-x-1.5 bg-gray-100 p-1.5 rounded-xl w-full md:w-auto justify-end">
+                                    <span className="text-[11px] font-bold text-gray-500 mr-1">업체지정:</span>
                                     {!isFruitTab ? (
                                       <>
                                         <button
+                                          type="button"
                                           onClick={() => handleAssignVendor(order.id, '협동')}
-                                          className={`px-2 py-0.5 text-xs font-bold rounded ${
-                                            currentV === '협동' ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-gray-700 hover:bg-gray-200'
+                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                            currentV === '협동' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
                                           }`}
                                         >
                                           협동
                                         </button>
                                         <button
+                                          type="button"
                                           onClick={() => handleAssignVendor(order.id, '옥승')}
-                                          className={`px-2 py-0.5 text-xs font-bold rounded ${
-                                            currentV === '옥승' ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-gray-700 hover:bg-gray-200'
+                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                            currentV === '옥승' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
                                           }`}
                                         >
                                           옥승
@@ -712,17 +740,19 @@ export default function Home() {
                                     ) : (
                                       <>
                                         <button
+                                          type="button"
                                           onClick={() => handleAssignVendor(order.id, '영주')}
-                                          className={`px-2 py-0.5 text-xs font-bold rounded ${
-                                            currentV === '영주' ? 'bg-red-600 text-white shadow-xs' : 'bg-white text-gray-700 hover:bg-gray-200'
+                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                            currentV === '영주' ? 'bg-red-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
                                           }`}
                                         >
                                           영주
                                         </button>
                                         <button
+                                          type="button"
                                           onClick={() => handleAssignVendor(order.id, '진성')}
-                                          className={`px-2 py-0.5 text-xs font-bold rounded ${
-                                            currentV === '진성' ? 'bg-red-600 text-white shadow-xs' : 'bg-white text-gray-700 hover:bg-gray-200'
+                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                            currentV === '진성' ? 'bg-red-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
                                           }`}
                                         >
                                           진성
