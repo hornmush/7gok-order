@@ -38,16 +38,25 @@ export default function Home() {
   const [subTab, setSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
   const [boardSubTab, setBoardSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
   const [searchQuery, setSearchQuery] = useState('')
-  const [ordererName, setOrdererName] = useState('상민')
+  const [ordererName, setOrdererName] = useState('농산팀')
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
 
   const [newItemName, setNewItemName] = useState('')
   const [newItemCategory, setNewItemCategory] = useState<'veg' | 'fruit'>('veg')
   const [newItemUnit, setNewItemUnit] = useState('박스')
 
+  // 브라우저 탭 이름 설정
+  useEffect(() => {
+    document.title = '칠곡농협 농산팀 실시간 발주 시스템'
+  }, [])
+
   useEffect(() => {
     const savedName = localStorage.getItem('ordererName')
-    if (savedName) setOrdererName(savedName)
+    if (savedName) {
+      setOrdererName(savedName)
+    } else {
+      setOrdererName('농산팀')
+    }
   }, [])
 
   const handleNameChange = (name: string) => {
@@ -65,10 +74,6 @@ export default function Home() {
     else if (data) setItems(data)
   }
 
-  useEffect(() => {
-    fetchItems()
-  }, [])
-
   const fetchOrderHistory = async () => {
     const { data, error } = await supabase
       .from('orders')
@@ -79,11 +84,33 @@ export default function Home() {
     else if (data) setOrderHistory(data)
   }
 
+  // 초기 로딩 및 Supabase 실시간(Realtime) 구독 설정
   useEffect(() => {
-    if (mainTab === 'BOARD' || mainTab === 'STATS') {
-      fetchOrderHistory()
+    fetchItems()
+    fetchOrderHistory()
+
+    const channel = supabase
+      .channel('realtime-orders-items')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          fetchOrderHistory()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'items' },
+        () => {
+          fetchItems()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [mainTab])
+  }, [])
 
   const handleCheckboxChange = (itemId: number, checked: boolean) => {
     if (checked) {
@@ -213,8 +240,6 @@ export default function Home() {
     if (error) {
       console.error('업체 지정 에러:', error)
       alert('업체 지정 중 오류가 발생했습니다.')
-    } else {
-      fetchOrderHistory()
     }
   }
 
@@ -259,9 +284,6 @@ export default function Home() {
     if (error) {
       console.error('삭제 에러:', error)
       alert('삭제 중 오류가 발생했습니다.')
-    } else {
-      alert('발주 기록이 삭제되었습니다.')
-      fetchOrderHistory()
     }
   }
 
@@ -277,8 +299,6 @@ export default function Home() {
     if (error) {
       console.error('상태 변경 에러:', error)
       alert('상태 변경 중 오류가 발생했습니다.')
-    } else {
-      fetchOrderHistory()
     }
   }
 
@@ -353,9 +373,7 @@ export default function Home() {
   const selectedCount = Object.values(orderInputs).filter(v => v.checked).length
   let lastDate = ''
 
-  // 📊 주별 통계 계산 (완료된 주문만 집계)
   const completedHistory = orderHistory.filter(o => o.is_completed)
-
   const totalOrderCount = completedHistory.length
   
   const totalVegQty = completedHistory
@@ -428,8 +446,15 @@ export default function Home() {
 
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
+      {/* 💡 카카오톡 미리보기용 메타 태그 (Head 영역 대용) */}
+      <head>
+        <title>칠곡농협 농산팀 실시간 발주 시스템</title>
+        <meta property="og:title" content="칠곡농협 농산팀 실시간 발주 시스템" />
+        <meta property="og:description" content="현장 요청부터 협력업체 문자 발송까지 한번에" />
+      </head>
+
       <div className="text-center my-6">
-        <h1 className="text-2xl font-extrabold text-gray-900">🛒 실시간 발주 시스템</h1>
+        <h1 className="text-2xl font-extrabold text-gray-900">🛒 칠곡농협 농산팀 실시간 발주 시스템</h1>
         <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계 및 품목 추가를 할 수 있습니다.</p>
       </div>
 
@@ -476,7 +501,7 @@ export default function Home() {
               type="text"
               value={ordererName}
               onChange={e => handleNameChange(e.target.value)}
-              placeholder="이름 입력 (예: 상민)"
+              placeholder="이름 입력 (예: 농산팀)"
               className="w-40 px-3 py-2 text-sm font-bold border border-indigo-400 rounded-xl bg-white text-center text-indigo-900 focus:outline-none focus:border-blue-600 shadow-inner"
             />
           </div>
