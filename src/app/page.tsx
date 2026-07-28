@@ -248,6 +248,23 @@ export default function Home() {
     }
   }
 
+  // 개별 시세 기록 삭제 핸들러
+  const handleDeletePriceRecord = async (recordId: number) => {
+    if (!confirm('정말 이 시세 기록을 삭제하시겠습니까?')) return
+
+    const { error } = await supabase
+      .from('price_history')
+      .delete()
+      .eq('id', recordId)
+
+    if (error) {
+      console.error('시세 삭제 에러:', error)
+      alert('시세 기록 삭제 중 오류가 발생했습니다.')
+    } else {
+      fetchPriceHistory()
+    }
+  }
+
   const handleCheckboxChange = (itemId: number, checked: boolean) => {
     if (checked) {
       const targetItem = items.find(i => i.id === itemId)
@@ -1550,7 +1567,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📈 [📈 시세차트] 탭 (검색 + 리스트 + 점선 그래프 적용) */}
+      {/* 📈 [📈 시세차트] 탭 (검색 + 리스트 + 점선 그래프 + 삭제 기능 적용) */}
       {mainTab === 'CHART' && (
         <div className="space-y-6">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -1558,7 +1575,7 @@ export default function Home() {
               <h2 className="text-lg font-bold text-gray-800 flex items-center">
                 <span>📈 품목별 도매 시세 히스토리 및 트렌드 분석</span>
               </h2>
-              <p className="text-xs text-gray-500 mt-0.5">검색으로 품목을 빠르게 찾아 시세를 기록하고, 점선 그래프를 통한 가격 변동 흐름과 AI 분석을 확인하세요.</p>
+              <p className="text-xs text-gray-500 mt-0.5">검색으로 품목을 빠르게 찾아 시세를 기록하고, 점선 그래프 및 잘못 기록된 내역을 삭제할 수 있습니다.</p>
             </div>
           </div>
 
@@ -1568,7 +1585,6 @@ export default function Home() {
               ➕ 당일 도매 시세 기록하기
             </h3>
 
-            {/* 품목 검색창 추가 */}
             <div className="space-y-2">
               <label className="block text-xs font-bold text-emerald-900">🔍 품목 검색 및 선택</label>
               <input
@@ -1662,7 +1678,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* 📈 점선 그래프 영역 (SVG Line Chart with strokeDasharray) */}
+                {/* 📈 점선 그래프 영역 */}
                 <div className="bg-gray-50 p-4 rounded-2xl border space-y-3">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-bold text-gray-600">📈 시세 추이 점선 그래프</span>
@@ -1671,7 +1687,6 @@ export default function Home() {
                   
                   <div className="w-full overflow-x-auto">
                     <svg viewBox="0 0 500 210" className="w-full h-48 overflow-visible">
-                      {/* 가이드 격자선 */}
                       <line x1="40" y1="20" x2="40" y2="170" stroke="#E5E7EB" strokeWidth="1" />
                       <line x1="40" y1="170" x2="480" y2="170" stroke="#E5E7EB" strokeWidth="1" />
                       <line x1="40" y1="95" x2="480" y2="95" stroke="#F3F4F6" strokeWidth="1" strokeDasharray="3,3" />
@@ -1697,7 +1712,6 @@ export default function Home() {
 
                         return (
                           <>
-                            {/* 점선 연결 라인 (strokeDasharray="6,6") */}
                             {points.length > 1 && (
                               <path
                                 d={pathData}
@@ -1708,7 +1722,6 @@ export default function Home() {
                               />
                             )}
 
-                            {/* 데이터 포인트 원 및 가격/날짜 텍스트 */}
                             {points.map((pt) => (
                               <g key={pt.id}>
                                 <circle cx={pt.x} cy={pt.y} r="4.5" fill="#059669" className="transition-all" />
@@ -1727,7 +1740,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 내역 목록 테이블 */}
+                {/* 내역 목록 테이블 (오른쪽에 삭제 버튼 추가) */}
                 <div className="border rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-100 text-gray-700 font-bold border-b">
@@ -1735,6 +1748,7 @@ export default function Home() {
                         <th className="p-3">기록 날짜</th>
                         <th className="p-3">품목명</th>
                         <th className="p-3 text-right">도매 시세</th>
+                        <th className="p-3 text-center w-20">관리</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -1743,6 +1757,15 @@ export default function Home() {
                           <td className="p-3 text-gray-600 font-medium">{record.recorded_date}</td>
                           <td className="p-3 font-bold text-gray-800">{record.item_name}</td>
                           <td className="p-3 text-right font-extrabold text-emerald-700">{record.price.toLocaleString()}원</td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePriceRecord(record.id)}
+                              className="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold shadow-xs transition-all"
+                            >
+                              🗑️ 삭제
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
