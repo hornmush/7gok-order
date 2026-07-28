@@ -35,14 +35,20 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   
   const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'MANAGE'>('WRITE')
-  const [subTab, setSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
+  
+  // 2계층 탭 구조 상태 (채소류 / 과일류 상위탭 및 하위탭)
+  const [topTab, setTopTab] = useState<'VEG' | 'FRUIT'>('VEG')
+  const [vegSubTab, setVegSubTab] = useState<'VEG_FREQUENT' | 'VEG_SPECIAL' | 'VEG_OCCASIONAL'>('VEG_FREQUENT')
+  const [fruitSubTab, setFruitSubTab] = useState<'FRUIT_FREQUENT' | 'FRUIT_SPECIAL'>('FRUIT_FREQUENT')
+
   const [boardSubTab, setBoardSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
   const [searchQuery, setSearchQuery] = useState('')
   const [ordererName, setOrdererName] = useState('농산팀')
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
 
   const [newItemName, setNewItemName] = useState('')
-  const [newItemCategory, setNewItemCategory] = useState<'veg' | 'fruit'>('veg')
+  const [newItemTopCat, setNewItemTopCat] = useState<'VEG' | 'FRUIT'>('VEG')
+  const [newItemSubCat, setNewItemSubCat] = useState<string>('veg_frequent')
   const [newItemUnit, setNewItemUnit] = useState('박스')
 
   useEffect(() => {
@@ -112,15 +118,15 @@ export default function Home() {
     if (checked) {
       const targetItem = items.find(i => i.id === itemId)
       const targetCat = targetItem?.category?.toLowerCase() || ''
-      const targetIsVeg = targetCat === 'veg' || targetCat === 'vegetable'
+      const targetIsFruit = targetCat.includes('fruit')
 
       const hasConflict = Object.entries(orderInputs).some(([idStr, val]) => {
         if (!val.checked) return false
         const it = items.find(i => i.id === Number(idStr))
         if (!it) return false
         const itCat = it.category?.toLowerCase() || ''
-        const itIsVeg = itCat === 'veg' || itCat === 'vegetable'
-        return targetIsVeg !== itIsVeg
+        const itIsFruit = itCat.includes('fruit')
+        return targetIsFruit !== itIsFruit
       })
 
       if (hasConflict) {
@@ -146,7 +152,7 @@ export default function Home() {
       ...prev,
       [itemId]: {
         checked: prev[itemId]?.checked || false,
-        quantity: Math.max(1, quantity),
+        quantity: isNaN(quantity) ? 1 : Math.max(1, quantity),
       },
     }))
   }
@@ -206,7 +212,7 @@ export default function Home() {
     setLoading(true)
     const { error } = await supabase.from('items').insert([
       {
-        category: newItemCategory,
+        category: newItemSubCat,
         name: newItemName.trim(),
         unit: newItemUnit.trim(),
       },
@@ -256,9 +262,11 @@ export default function Home() {
 
     const firstCat = itemsList[0]?.category?.toLowerCase() || ''
     if (firstCat.includes('fruit')) {
-      setSubTab('FRUIT')
+      setTopTab('FRUIT')
+      setFruitSubTab('FRUIT_FREQUENT')
     } else {
-      setSubTab('VEG')
+      setTopTab('VEG')
+      setVegSubTab('VEG_FREQUENT')
     }
 
     setOrderInputs(newInputs)
@@ -313,10 +321,9 @@ export default function Home() {
 
   const filteredOrderHistory = orderHistory.filter(order => {
     const cat = order.category?.toLowerCase() || ''
-    const isVeg = cat === 'veg' || cat === 'vegetable'
-    const isFruit = cat === 'fruit' || cat === 'fruits'
+    const isFruit = cat.includes('fruit')
 
-    if (boardSubTab === 'VEG') return isVeg
+    if (boardSubTab === 'VEG') return !isFruit
     if (boardSubTab === 'FRUIT') return isFruit
     return false
   })
@@ -356,8 +363,17 @@ export default function Home() {
     const matchesSearch = searchQuery.trim() === '' || item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
 
     if (searchQuery.trim() !== '') return matchesSearch
-    if (subTab === 'VEG') return cat === 'veg' || cat === 'vegetable'
-    if (subTab === 'FRUIT') return cat === 'fruit' || cat === 'fruits'
+
+    if (topTab === 'VEG') {
+      if (cat.includes('fruit')) return false
+      if (vegSubTab === 'VEG_FREQUENT') return cat === 'veg_frequent' || cat === 'veg' || cat === 'vegetable' || cat === ''
+      if (vegSubTab === 'VEG_SPECIAL') return cat === 'veg_special'
+      if (vegSubTab === 'VEG_OCCASIONAL') return cat === 'veg_occasional'
+    } else {
+      if (!cat.includes('fruit')) return false
+      if (fruitSubTab === 'FRUIT_FREQUENT') return cat === 'fruit_frequent' || cat === 'fruit_main' || cat === 'fruit' || cat === 'fruits' || cat === ''
+      if (fruitSubTab === 'FRUIT_SPECIAL') return cat === 'fruit_special' || cat === 'fruit_seasonal'
+    }
     return false
   })
 
@@ -370,14 +386,14 @@ export default function Home() {
   const totalVegQty = completedHistory
     .filter(o => {
       const c = o.category?.toLowerCase() || ''
-      return c === 'veg' || c === 'vegetable'
+      return !c.includes('fruit')
     })
     .reduce((sum, o) => sum + o.quantity, 0)
 
   const totalFruitQty = completedHistory
     .filter(o => {
       const c = o.category?.toLowerCase() || ''
-      return c === 'fruit' || c === 'fruits'
+      return c.includes('fruit')
     })
     .reduce((sum, o) => sum + o.quantity, 0)
 
@@ -490,26 +506,84 @@ export default function Home() {
             />
           </div>
 
-          <div className="flex bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner">
+          {/* 1단계 상위 탭: 채소류 / 과일류 */}
+          <div className="flex bg-gray-200 p-1.5 rounded-2xl mb-3 shadow-inner">
             <button
               type="button"
-              onClick={() => { setSearchQuery(''); setSubTab('VEG'); }}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
-                subTab === 'VEG' && searchQuery === '' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              onClick={() => { setSearchQuery(''); setTopTab('VEG'); }}
+              className={`flex-1 py-3 text-sm sm:text-base font-black rounded-xl transition-all ${
+                topTab === 'VEG' && searchQuery === '' ? 'bg-green-700 text-white shadow-md' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               🥦 채소류
             </button>
             <button
               type="button"
-              onClick={() => { setSearchQuery(''); setSubTab('FRUIT'); }}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
-                subTab === 'FRUIT' && searchQuery === '' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              onClick={() => { setSearchQuery(''); setTopTab('FRUIT'); }}
+              className={`flex-1 py-3 text-sm sm:text-base font-black rounded-xl transition-all ${
+                topTab === 'FRUIT' && searchQuery === '' ? 'bg-red-600 text-white shadow-md' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               🍎 과일류
             </button>
           </div>
+
+          {/* 2단계 하위 탭: 채소류 선택 시 */}
+          {topTab === 'VEG' && searchQuery === '' && (
+            <div className="grid grid-cols-3 gap-1.5 bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner border border-green-200">
+              <button
+                type="button"
+                onClick={() => setVegSubTab('VEG_FREQUENT')}
+                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                  vegSubTab === 'VEG_FREQUENT' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🥬 자주 발주
+              </button>
+              <button
+                type="button"
+                onClick={() => setVegSubTab('VEG_SPECIAL')}
+                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                  vegSubTab === 'VEG_SPECIAL' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🥕 특수 야채
+              </button>
+              <button
+                type="button"
+                onClick={() => setVegSubTab('VEG_OCCASIONAL')}
+                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                  vegSubTab === 'VEG_OCCASIONAL' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🧅 가끔 넣는
+              </button>
+            </div>
+          )}
+
+          {/* 2단계 하위 탭: 과일류 선택 시 */}
+          {topTab === 'FRUIT' && searchQuery === '' && (
+            <div className="grid grid-cols-2 gap-1.5 bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner border border-red-200">
+              <button
+                type="button"
+                onClick={() => setFruitSubTab('FRUIT_FREQUENT')}
+                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                  fruitSubTab === 'FRUIT_FREQUENT' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🍎 자주 발주
+              </button>
+              <button
+                type="button"
+                onClick={() => setFruitSubTab('FRUIT_SPECIAL')}
+                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                  fruitSubTab === 'FRUIT_SPECIAL' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🍉 특수 과일
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
             {filteredItems.map(item => {
@@ -544,6 +618,7 @@ export default function Home() {
                         type="number"
                         min="1"
                         value={quantity}
+                        onFocus={(e) => e.target.select()}
                         onChange={e => handleQuantityChange(item.id, Number(e.target.value))}
                         className="w-16 px-2 py-1 text-right text-sm border rounded bg-white font-semibold"
                       />
@@ -713,7 +788,6 @@ export default function Home() {
                                     <span className="font-bold text-indigo-600">{order.quantity}{unit}</span>
                                   </div>
 
-                                  {/* 터치 영역을 키우고 모바일에서 확실히 눌리도록 개선된 업체 지정 버튼 그룹 */}
                                   <div className="flex items-center space-x-1.5 bg-gray-100 p-1.5 rounded-xl w-full md:w-auto justify-end">
                                     <span className="text-[11px] font-bold text-gray-500 mr-1">업체지정:</span>
                                     {!isFruitTab ? (
@@ -891,29 +965,92 @@ export default function Home() {
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
             <form onSubmit={handleAddNewItem} className="space-y-4">
               <div>
-                <label className="block text-xs font-black text-gray-700 mb-1">카테고리 선택</label>
-                <div className="flex space-x-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="newCategory"
-                      checked={newItemCategory === 'veg'}
-                      onChange={() => setNewItemCategory('veg')}
-                      className="text-green-600"
-                    />
-                    <span className="text-sm font-bold text-green-700">🥦 채소류 (veg)</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="newCategory"
-                      checked={newItemCategory === 'fruit'}
-                      onChange={() => setNewItemCategory('fruit')}
-                      className="text-red-600"
-                    />
-                    <span className="text-sm font-bold text-red-600">🍎 과일류 (fruit)</span>
-                  </label>
+                <label className="block text-xs font-black text-gray-700 mb-2">1. 상위 분류 선택</label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewItemTopCat('VEG')
+                      setNewItemSubCat('veg_frequent')
+                    }}
+                    className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                      newItemTopCat === 'VEG' ? 'bg-green-700 text-white border-green-700 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200'
+                    }`}
+                  >
+                    🥦 채소류
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewItemTopCat('FRUIT')
+                      setNewItemSubCat('fruit_frequent')
+                    }}
+                    className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                      newItemTopCat === 'FRUIT' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200'
+                    }`}
+                  >
+                    🍎 과일류
+                  </button>
                 </div>
+
+                <label className="block text-xs font-black text-gray-700 mb-2">2. 세부 분류 선택</label>
+                {newItemTopCat === 'VEG' ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
+                      <input
+                        type="radio"
+                        name="newSubCategory"
+                        checked={newItemSubCat === 'veg_frequent'}
+                        onChange={() => setNewItemSubCat('veg_frequent')}
+                        className="text-green-600"
+                      />
+                      <span className="text-xs font-bold text-green-700">자주 발주</span>
+                    </label>
+                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
+                      <input
+                        type="radio"
+                        name="newSubCategory"
+                        checked={newItemSubCat === 'veg_special'}
+                        onChange={() => setNewItemSubCat('veg_special')}
+                        className="text-emerald-600"
+                      />
+                      <span className="text-xs font-bold text-emerald-700">특수 야채</span>
+                    </label>
+                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
+                      <input
+                        type="radio"
+                        name="newSubCategory"
+                        checked={newItemSubCat === 'veg_occasional'}
+                        onChange={() => setNewItemSubCat('veg_occasional')}
+                        className="text-blue-600"
+                      />
+                      <span className="text-xs font-bold text-blue-700">가끔 넣는</span>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border bg-gray-50">
+                      <input
+                        type="radio"
+                        name="newSubCategory"
+                        checked={newItemSubCat === 'fruit_frequent'}
+                        onChange={() => setNewItemSubCat('fruit_frequent')}
+                        className="text-red-600"
+                      />
+                      <span className="text-xs font-bold text-red-600">자주 발주</span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border bg-gray-50">
+                      <input
+                        type="radio"
+                        name="newSubCategory"
+                        checked={newItemSubCat === 'fruit_special'}
+                        onChange={() => setNewItemSubCat('fruit_special')}
+                        className="text-orange-600"
+                      />
+                      <span className="text-xs font-bold text-orange-600">특수 과일</span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -922,7 +1059,7 @@ export default function Home() {
                   type="text"
                   value={newItemName}
                   onChange={e => setNewItemName(e.target.value)}
-                  placeholder="예: 샤인머스캣, 애호박 등"
+                  placeholder="예: 애호박, 사과 등"
                   className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-indigo-500 font-bold"
                 />
               </div>
@@ -951,19 +1088,27 @@ export default function Home() {
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
             <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">📋 현재 등록된 전체 품목 목록 ({items.length}개)</h3>
             <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-              {items.map(item => (
-                <div key={item.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl border text-sm">
-                  <div className="flex items-center space-x-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                      item.category?.toLowerCase().includes('fruit') ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {item.category?.toLowerCase().includes('fruit') ? '과일' : '채소'}
-                    </span>
-                    <span className="font-bold text-gray-800">{item.name}</span>
+              {items.map(item => {
+                const c = item.category?.toLowerCase() || ''
+                let badgeText = '자주발주'
+                let badgeColor = 'bg-green-100 text-green-700'
+                if (c === 'veg_special') { badgeText = '특수야채'; badgeColor = 'bg-emerald-100 text-emerald-700'; }
+                else if (c === 'veg_occasional') { badgeText = '가끔넣는'; badgeColor = 'bg-blue-100 text-blue-700'; }
+                else if (c === 'fruit_special') { badgeText = '특수과일'; badgeColor = 'bg-orange-100 text-orange-700'; }
+                else if (c.includes('fruit')) { badgeText = '자주발주(과일)'; badgeColor = 'bg-red-100 text-red-600'; }
+
+                return (
+                  <div key={item.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl border text-sm">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badgeColor}`}>
+                        {badgeText}
+                      </span>
+                      <span className="font-bold text-gray-800">{item.name}</span>
+                    </div>
+                    <span className="text-xs text-gray-500 font-semibold">{item.unit}</span>
                   </div>
-                  <span className="text-xs text-gray-500 font-semibold">{item.unit}</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
