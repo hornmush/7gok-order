@@ -738,7 +738,7 @@ export default function Home() {
         )
       }
       setIsAiAnalyzing(false)
-    }, 800) // 0.8초 체감 로딩
+    }, 800)
   }
 
   return (
@@ -936,6 +936,15 @@ export default function Home() {
 
               return (
                 <div className="space-y-6 mb-8">
+                  {restItems.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-black text-gray-700">🥬 일반 자주 발주 품목</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {restItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+
                   {boxItems.length > 0 && (
                     <div className="bg-emerald-50/50 border-2 border-emerald-300 rounded-2xl p-4 space-y-3">
                       <h3 className="text-xs font-black text-emerald-900 flex items-center space-x-1 border-b border-emerald-200 pb-2">
@@ -979,15 +988,6 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-
-                  {restItems.length > 0 && (
-                    <div className="space-y-3">
-                      <h3 className="text-xs font-black text-gray-700">🥬 일반 자주 발주 품목</h3>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {restItems.map(item => renderItemCard(item))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )
             })()
@@ -1011,6 +1011,35 @@ export default function Home() {
                 </div>
               </div>
             </div>
+          ) : topTab === 'VEG' && vegSubTab === 'VEG_OCCASIONAL' ? (
+            (() => {
+              const driedItems = filteredItems.filter(i => i.name.startsWith('건') || i.name.includes('청각'))
+              const restItems = filteredItems.filter(i => !(i.name.startsWith('건') || i.name.includes('청각')))
+
+              return (
+                <div className="space-y-6 mb-8">
+                  {driedItems.length > 0 && (
+                    <div className="bg-amber-50/50 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
+                      <h3 className="text-xs font-black text-amber-900 flex items-center space-x-1 border-b border-amber-200 pb-2">
+                        <span>📦 건조류 (건~ / 청각)</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {driedItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+
+                  {restItems.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-black text-gray-700">🧅 기타 가끔 넣는 품목</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {restItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
               {filteredItems.map(item => renderItemCard(item))}
@@ -1792,7 +1821,7 @@ export default function Home() {
                 if (c === 'veg_packaged') { badgeText = '포장된'; badgeColor = 'bg-teal-100 text-teal-700'; }
                 else if (c === 'veg_special') { badgeText = '특수야채'; badgeColor = 'bg-emerald-100 text-emerald-700'; }
                 else if (c === 'veg_occasional') { badgeText = '가끔넣는'; badgeColor = 'bg-blue-100 text-blue-700'; }
-                else if (c === 'fruit_special') { badgeText = '특수과일'; badgeColor = 'bg-orange-100 text-orange-700'; }
+                else if (c === 'fruit_special') { badgeText = '특수과일'; badgeColor = 'bg-orange-100 text-orange-600'; }
                 else if (c.includes('fruit')) { badgeText = '자주발주(과일)'; badgeColor = 'bg-red-100 text-red-600'; }
 
                 return (
