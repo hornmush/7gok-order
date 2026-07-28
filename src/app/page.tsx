@@ -85,6 +85,10 @@ export default function Home() {
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
 
+  // 날씨 위젯 상태 (대구 칠곡 기준)
+  const [weather, setWeather] = useState<{ temp: number; humidity: number; desc: string; icon: string } | null>(null)
+  const [weatherLoading, setWeatherLoading] = useState(true)
+
   const [newItemName, setNewItemName] = useState('')
   const [newItemTopCat, setNewItemTopCat] = useState<'VEG' | 'FRUIT'>('VEG')
   const [newItemSubCat, setNewItemSubCat] = useState<string>('veg_frequent')
@@ -117,6 +121,34 @@ export default function Home() {
     } else {
       setOrdererName('농산팀')
     }
+
+    // 대구 칠곡 지역 날씨 가져오기 (Open-Meteo 무료 API)
+    async function fetchWeather() {
+      try {
+        const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.94&longitude=128.55&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FSeoul')
+        const data = await res.json()
+        const code = data.current.weather_code
+        let desc = '맑음'
+        let icon = '☀️'
+        if (code >= 1 && code <= 3) { desc = '구름 많음'; icon = '⛅'; }
+        else if (code >= 51 && code <= 67) { desc = '비'; icon = '🌧️'; }
+        else if (code >= 71 && code <= 77) { desc = '눈'; icon = '❄️'; }
+        else if (code >= 95) { desc = '천둥번개'; icon = '⛈️'; }
+        else if (code >= 45) { desc = '안개'; icon = '🌫️'; }
+
+        setWeather({
+          temp: data.current.temperature_2m,
+          humidity: data.current.relative_humidity_2m,
+          desc,
+          icon
+        })
+      } catch (e) {
+        console.error('날씨 정보 로딩 실패:', e)
+      } finally {
+        setWeatherLoading(false)
+      }
+    }
+    fetchWeather()
   }, [])
 
   const handleNameChange = (name: string) => {
@@ -869,7 +901,20 @@ export default function Home() {
         <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트 및 행사 관리를 할 수 있습니다.</p>
       </div>
 
-      {/* 상단 메인 탭 네비게이션: 2줄 레이아웃 (3열 x 2행) 적용 */}
+      {/* 🌤️ 대구 칠곡 지역 날씨 위젯 */}
+      <div className="bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-2xl p-3.5 mb-6 shadow-md flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <span className="text-2xl">📍</span>
+          <div>
+            <span className="text-xs font-bold text-sky-100 block">대구 칠곡 지역 날씨 (농산물 수급 참고)</span>
+            <span className="text-xs sm:text-sm font-extrabold">
+              {weatherLoading ? '날씨 정보를 불러오는 중...' : weather ? `현재 기온: ${weather.temp}°C (${weather.desc} ${weather.icon}) | 습도: ${weather.humidity}%` : '날씨 정보를 가져올 수 없습니다.'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 상단 메인 탭 네비게이션 */}
       <div className="grid grid-cols-3 gap-2 mb-6">
         <button
           type="button"
@@ -1562,7 +1607,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📈 [📈 시세차트] 탭 */}
+      {/* 📈 [📈 시세차트] 탭 (직전 대비 등락률 표시 추가) */}
       {mainTab === 'CHART' && (
         <div className="space-y-6">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -1734,35 +1779,48 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 내역 목록 테이블 (아이콘 단독 버튼 적용) */}
+                {/* 내역 목록 테이블 (직전 대비 증감률 % 자동 계산 표시) */}
                 <div className="border rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-100 text-gray-700 font-bold border-b">
                       <tr>
                         <th className="p-3">기록 날짜</th>
                         <th className="p-3">품목명</th>
-                        <th className="p-3 text-right">도매 시세</th>
+                        <th className="p-3 text-right">도매 시세 (직전 대비 등락률)</th>
                         <th className="p-3 text-center w-20">관리</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {filteredPricesForChart.map(record => (
-                        <tr key={record.id} className="hover:bg-gray-50">
-                          <td className="p-3 text-gray-600 font-medium">{record.recorded_date}</td>
-                          <td className="p-3 font-bold text-gray-800">{record.item_name}</td>
-                          <td className="p-3 text-right font-extrabold text-emerald-700">{record.price.toLocaleString()}원</td>
-                          <td className="p-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePriceRecord(record.id)}
-                              title="삭제"
-                              className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg text-xs shadow-xs transition-all inline-flex items-center justify-center"
-                            >
-                              🗑️
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredPricesForChart.map((record, idx, arr) => {
+                        const prevRecord = idx > 0 ? arr[idx - 1] : null
+                        const diff = prevRecord ? record.price - prevRecord.price : 0
+                        const rate = prevRecord && prevRecord.price > 0 ? ((diff / prevRecord.price) * 100).toFixed(1) : null
+
+                        return (
+                          <tr key={record.id} className="hover:bg-gray-50">
+                            <td className="p-3 text-gray-600 font-medium">{record.recorded_date}</td>
+                            <td className="p-3 font-bold text-gray-800">{record.item_name}</td>
+                            <td className="p-3 text-right">
+                              <div className="font-extrabold text-emerald-700">{record.price.toLocaleString()}원</div>
+                              {rate !== null && (
+                                <div className={`text-[11px] font-bold mt-0.5 ${Number(rate) > 0 ? 'text-red-600' : Number(rate) < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                  {Number(rate) > 0 ? `▲ +${rate}%` : Number(rate) < 0 ? `▼ ${rate}%` : '- 0.0%'}
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePriceRecord(record.id)}
+                                title="삭제"
+                                className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg text-xs shadow-xs transition-all inline-flex items-center justify-center"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
