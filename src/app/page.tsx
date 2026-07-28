@@ -746,7 +746,7 @@ export default function Home() {
       if (cat.includes('fruit')) return false
       if (vegSubTab === 'VEG_FREQUENT') return cat === 'veg_frequent' || cat === 'veg' || cat === 'vegetable' || cat === ''
       if (vegSubTab === 'VEG_PACKAGED') return cat === 'veg_packaged'
-      if (vegSubTab === 'veg_special') return cat === 'veg_special'
+      if (vegSubTab === 'VEG_SPECIAL') return cat === 'veg_special'
       if (vegSubTab === 'VEG_OCCASIONAL') return cat === 'veg_occasional'
     } else {
       if (!cat.includes('fruit')) return false
