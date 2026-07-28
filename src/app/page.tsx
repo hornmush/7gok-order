@@ -78,10 +78,10 @@ export default function Home() {
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
   const [editingOriginalTime, setEditingOriginalTime] = useState<string | null>(null)
 
-  // 시세 히스토리 및 차트 검색 상태
+  // 시세 히스토리 및 통합 검색(검색+선택 합체) 상태
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([])
   const [selectedChartItemId, setSelectedChartItemId] = useState<number | null>(null)
-  const [chartItemSearch, setChartItemSearch] = useState('')
+  const [chartItemSearchText, setChartItemSearchText] = useState('')
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -135,6 +135,7 @@ export default function Home() {
       setItems(data)
       if (data.length > 0 && !selectedChartItemId) {
         setSelectedChartItemId(data[0].id)
+        setChartItemSearchText(data[0].name)
       }
     }
   }
@@ -248,7 +249,6 @@ export default function Home() {
     }
   }
 
-  // 개별 시세 기록 삭제 핸들러
   const handleDeletePriceRecord = async (recordId: number) => {
     if (!confirm('정말 이 시세 기록을 삭제하시겠습니까?')) return
 
@@ -861,11 +861,6 @@ export default function Home() {
 
   const currentItemSelected = items.find(i => i.id === selectedChartItemId)
   const filteredPricesForChart = priceHistory.filter(p => p.item_id === selectedChartItemId)
-  
-  // 차트 탭 내에서 검색어로 필터링된 품목 리스트
-  const filteredChartItemsList = items.filter(i => 
-    i.name.toLowerCase().includes(chartItemSearch.toLowerCase().trim())
-  )
 
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
@@ -1567,7 +1562,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📈 [📈 시세차트] 탭 (검색 + 리스트 + 점선 그래프 + 삭제 기능 적용) */}
+      {/* 📈 [📈 시세차트] 탭 */}
       {mainTab === 'CHART' && (
         <div className="space-y-6">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -1575,7 +1570,7 @@ export default function Home() {
               <h2 className="text-lg font-bold text-gray-800 flex items-center">
                 <span>📈 품목별 도매 시세 히스토리 및 트렌드 분석</span>
               </h2>
-              <p className="text-xs text-gray-500 mt-0.5">검색으로 품목을 빠르게 찾아 시세를 기록하고, 점선 그래프 및 잘못 기록된 내역을 삭제할 수 있습니다.</p>
+              <p className="text-xs text-gray-500 mt-0.5">품목 입력란에 직접 글자를 치면 리스트가 필터링되며 바로 검색·선택할 수 있습니다.</p>
             </div>
           </div>
 
@@ -1585,35 +1580,29 @@ export default function Home() {
               ➕ 당일 도매 시세 기록하기
             </h3>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-emerald-900">🔍 품목 검색 및 선택</label>
-              <input
-                type="text"
-                placeholder="검색할 품목 이름 입력 (예: 사과, 대파...)"
-                value={chartItemSearch}
-                onChange={e => setChartItemSearch(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-emerald-300 rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600 shadow-xs"
-              />
-            </div>
-
             <form onSubmit={handleAddPriceRecord} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
-                <label className="block text-xs font-bold text-emerald-900 mb-1">검색된 품목 리스트</label>
-                <select
-                  value={selectedChartItemId || ''}
-                  onChange={e => setSelectedChartItemId(Number(e.target.value))}
-                  className="w-full px-3 py-2.5 text-xs border rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600"
-                >
-                  {filteredChartItemsList.length === 0 ? (
-                    <option value="">검색 결과 없음</option>
-                  ) : (
-                    filteredChartItemsList.map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} ({item.unit})
-                      </option>
-                    ))
-                  )}
-                </select>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">🔍 품목 검색 및 선택 (통합 검색)</label>
+                <input
+                  type="text"
+                  list="chart-item-list"
+                  placeholder="품목명 입력 또는 선택"
+                  value={chartItemSearchText}
+                  onChange={e => {
+                    const val = e.target.value
+                    setChartItemSearchText(val)
+                    const matched = items.find(i => i.name === val)
+                    if (matched) {
+                      setSelectedChartItemId(matched.id)
+                    }
+                  }}
+                  className="w-full px-3 py-2.5 text-xs border border-emerald-300 rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600 shadow-xs"
+                />
+                <datalist id="chart-item-list">
+                  {items.map(item => (
+                    <option key={item.id} value={item.name} label={`단위: ${item.unit}`} />
+                  ))}
+                </datalist>
               </div>
 
               <div>
@@ -1658,7 +1647,12 @@ export default function Home() {
               <div className="w-56">
                 <select
                   value={selectedChartItemId || ''}
-                  onChange={e => setSelectedChartItemId(Number(e.target.value))}
+                  onChange={e => {
+                    const id = Number(e.target.value)
+                    setSelectedChartItemId(id)
+                    const found = items.find(i => i.id === id)
+                    if (found) setChartItemSearchText(found.name)
+                  }}
                   className="w-full px-3 py-2 text-xs border rounded-xl bg-gray-50 font-bold"
                 >
                   {items.map(item => (
@@ -1740,7 +1734,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 내역 목록 테이블 (오른쪽에 삭제 버튼 추가) */}
+                {/* 내역 목록 테이블 (아이콘 단독 버튼 적용) */}
                 <div className="border rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-100 text-gray-700 font-bold border-b">
@@ -1761,9 +1755,10 @@ export default function Home() {
                             <button
                               type="button"
                               onClick={() => handleDeletePriceRecord(record.id)}
-                              className="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold shadow-xs transition-all"
+                              title="삭제"
+                              className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg text-xs shadow-xs transition-all inline-flex items-center justify-center"
                             >
-                              🗑️ 삭제
+                              🗑️
                             </button>
                           </td>
                         </tr>
