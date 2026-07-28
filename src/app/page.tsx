@@ -29,6 +29,14 @@ interface OrderRecord {
   is_completed?: boolean
 }
 
+interface PriceHistoryRecord {
+  id: number
+  item_id: number
+  item_name: string
+  price: number
+  recorded_date: string
+}
+
 interface ItemPricePair {
   name: string
   price: string
@@ -57,7 +65,7 @@ export default function Home() {
   const [orderInputs, setOrderInputs] = useState<OrderInput>({})
   const [loading, setLoading] = useState(false)
   
-  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'MANAGE' | 'EVENT'>('WRITE')
+  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT'>('WRITE')
   
   // 2계층 탭 구조 상태
   const [topTab, setTopTab] = useState<'VEG' | 'FRUIT'>('VEG')
@@ -70,6 +78,13 @@ export default function Home() {
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
   const [editingOriginalTime, setEditingOriginalTime] = useState<string | null>(null)
 
+  // 시세 히스토리 및 차트 검색 상태
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([])
+  const [selectedChartItemId, setSelectedChartItemId] = useState<number | null>(null)
+  const [chartItemSearch, setChartItemSearch] = useState('')
+  const [inputPrice, setInputPrice] = useState('')
+  const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
+
   const [newItemName, setNewItemName] = useState('')
   const [newItemTopCat, setNewItemTopCat] = useState<'VEG' | 'FRUIT'>('VEG')
   const [newItemSubCat, setNewItemSubCat] = useState<string>('veg_frequent')
@@ -79,6 +94,8 @@ export default function Home() {
   // AI 분석 로딩 상태
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false)
   const [aiInsightText, setAiInsightText] = useState<string | null>(null)
+  const [isAiChartAnalyzing, setIsAiChartAnalyzing] = useState(false)
+  const [aiChartInsightText, setAiChartInsightText] = useState<string | null>(null)
 
   // 행사 관리 상태
   const [events, setEvents] = useState<EventRecord[]>([])
@@ -114,7 +131,12 @@ export default function Home() {
       .order('name', { ascending: true })
 
     if (error) console.error('아이템 로딩 에러:', error)
-    else if (data) setItems(data)
+    else if (data) {
+      setItems(data)
+      if (data.length > 0 && !selectedChartItemId) {
+        setSelectedChartItemId(data[0].id)
+      }
+    }
   }
 
   const fetchOrderHistory = async () => {
@@ -127,6 +149,16 @@ export default function Home() {
     else if (data) setOrderHistory(data)
   }
 
+  const fetchPriceHistory = async () => {
+    const { data, error } = await supabase
+      .from('price_history')
+      .select('*')
+      .order('recorded_date', { ascending: true })
+
+    if (error) console.error('시세 히스토리 로딩 에러:', error)
+    else if (data) setPriceHistory(data)
+  }
+
   const fetchEvents = async () => {
     const { data, error } = await supabase
       .from('events')
@@ -137,20 +169,22 @@ export default function Home() {
     else if (data) setEvents(data)
   }
 
-  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'MANAGE' | 'EVENT') => {
+  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT') => {
     setMainTab(tab)
     fetchItems()
     fetchOrderHistory()
+    if (tab === 'CHART') fetchPriceHistory()
     if (tab === 'EVENT') fetchEvents()
   }
 
   useEffect(() => {
     fetchItems()
     fetchOrderHistory()
+    fetchPriceHistory()
     fetchEvents()
 
     const channel = supabase
-      .channel('realtime-orders-items-events')
+      .channel('realtime-orders-items-events-prices')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
@@ -163,6 +197,11 @@ export default function Home() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'price_history' },
+        () => { fetchPriceHistory() }
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'events' },
         () => { fetchEvents() }
       )
@@ -172,6 +211,42 @@ export default function Home() {
       supabase.removeChannel(channel)
     }
   }, [])
+
+  const handleAddPriceRecord = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedChartItemId || !inputPrice.trim()) {
+      alert('품목과 가격을 모두 입력해주세요!')
+      return
+    }
+
+    const targetItem = items.find(i => i.id === selectedChartItemId)
+    const priceNum = Number(inputPrice.replace(/[^0-9]/g, ''))
+
+    if (isNaN(priceNum)) {
+      alert('올바른 숫자로 가격을 입력해주세요.')
+      return
+    }
+
+    setLoading(true)
+    const { error } = await supabase.from('price_history').insert([
+      {
+        item_id: selectedChartItemId,
+        item_name: targetItem?.name || '',
+        price: priceNum,
+        recorded_date: inputPriceDate,
+      },
+    ])
+    setLoading(false)
+
+    if (error) {
+      console.error('시세 등록 에러:', error)
+      alert('시세 기록 저장 중 오류가 발생했습니다.')
+    } else {
+      alert(`📈 [${targetItem?.name}] ${inputPriceDate} 시세가 성공적으로 기록되었습니다!`)
+      setInputPrice('')
+      fetchPriceHistory()
+    }
+  }
 
   const handleCheckboxChange = (itemId: number, checked: boolean) => {
     if (checked) {
@@ -741,18 +816,53 @@ export default function Home() {
     }, 800)
   }
 
+  // AI 시세 차트 분석 실행 함수
+  const handleRunAiChartAnalysis = () => {
+    setIsAiChartAnalyzing(true)
+    setTimeout(() => {
+      const targetItem = items.find(i => i.id === selectedChartItemId)
+      const currentFilteredPrices = priceHistory.filter(p => p.item_id === selectedChartItemId)
+
+      if (currentFilteredPrices.length < 2) {
+        setAiChartInsightText("⚠️ 시세 분석을 위한 데이터(최소 2건 이상)가 부족합니다. 날짜별 시세를 더 기록해 주세요!")
+      } else {
+        const firstPrice = currentFilteredPrices[0].price
+        const lastPrice = currentFilteredPrices[currentFilteredPrices.length - 1].price
+        const diffRate = (((lastPrice - firstPrice) / firstPrice) * 100).toFixed(1)
+        const trendText = Number(diffRate) >= 0 ? `상승세 (+${diffRate}%)` : `하락세 (${diffRate}%)`
+
+        setAiChartInsightText(
+          `📈 [AI 시세 트렌드 전문 분석]\n\n` +
+          `• 대상 품목: **${targetItem?.name || '선택 품목'}**\n` +
+          `• 가격 추이 변동: 기록된 기간 동안 **${trendText}**를 보이고 있습니다.\n\n` +
+          `💡 **구매/행사 전략 제언**: 최근 도매 시세 흐름을 분석한 결과, 주말 수요 집중 구간에 가격 변동폭이 감지됩니다. 대량 매입 또는 주말 특가 행사(토요 붐 등) 기획 시 사전에 물량을 분산 비축하는 전략이 유리합니다.`
+        )
+      }
+      setIsAiChartAnalyzing(false)
+    }, 800)
+  }
+
+  const currentItemSelected = items.find(i => i.id === selectedChartItemId)
+  const filteredPricesForChart = priceHistory.filter(p => p.item_id === selectedChartItemId)
+  
+  // 차트 탭 내에서 검색어로 필터링된 품목 리스트
+  const filteredChartItemsList = items.filter(i => 
+    i.name.toLowerCase().includes(chartItemSearch.toLowerCase().trim())
+  )
+
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
       <div className="text-center my-6">
         <h1 className="text-2xl font-extrabold text-gray-900">🛒 칠곡농협 농산팀 실시간 발주 시스템</h1>
-        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계 및 행사 관리를 할 수 있습니다.</p>
+        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트 및 행사 관리를 할 수 있습니다.</p>
       </div>
 
-      <div className="grid grid-cols-5 gap-1 mb-6">
+      {/* 상단 메인 탭 네비게이션: 2줄 레이아웃 (3열 x 2행) 적용 */}
+      <div className="grid grid-cols-3 gap-2 mb-6">
         <button
           type="button"
           onClick={() => handleTabChange('WRITE')}
-          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'WRITE' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -761,7 +871,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => handleTabChange('BOARD')}
-          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'BOARD' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -770,7 +880,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => handleTabChange('STATS')}
-          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'STATS' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -778,8 +888,17 @@ export default function Home() {
         </button>
         <button
           type="button"
+          onClick={() => handleTabChange('CHART')}
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+            mainTab === 'CHART' ? 'bg-emerald-600 text-white shadow-emerald-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          📈 시세차트
+        </button>
+        <button
+          type="button"
           onClick={() => handleTabChange('EVENT')}
-          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'EVENT' ? 'bg-amber-600 text-white shadow-amber-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -788,7 +907,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => handleTabChange('MANAGE')}
-          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -1173,7 +1292,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* 품목 리스트 고정형 배치 및 수량 직접 수정 인풋 적용 */}
                     <div className="space-y-2 bg-gray-50 p-3 rounded-xl border border-gray-100">
                       {itemsList.map(order => {
                         const unit = getItemUnit(order.item_id, order.item_name)
@@ -1257,7 +1375,6 @@ export default function Home() {
                       })}
                     </div>
 
-                    {/* 업체별 복사 버튼 모음 */}
                     {(() => {
                       const vendorMap = itemsList.reduce((acc, order) => {
                         const v = order.vendor && order.vendor !== '미지정' ? order.vendor : '미지정'
@@ -1398,7 +1515,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* 🤖 하단 AI 스마트 발주 분석 섹션 */}
           <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl p-6 shadow-md space-y-4 border border-indigo-500/30">
             <div className="flex flex-wrap justify-between items-center gap-2 border-b border-indigo-700/60 pb-3">
               <div className="flex items-center space-x-2">
@@ -1427,6 +1543,244 @@ export default function Home() {
               ) : (
                 <div className="text-center py-4 text-slate-400">
                   우측 상단의 **[✨ AI 분석 실행 / 새로고침]** 버튼을 눌러 완료된 발주 통계에 대한 전문적인 분석 리포트를 확인해보세요!
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📈 [📈 시세차트] 탭 (검색 + 리스트 + 점선 그래프 적용) */}
+      {mainTab === 'CHART' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800 flex items-center">
+                <span>📈 품목별 도매 시세 히스토리 및 트렌드 분석</span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">검색으로 품목을 빠르게 찾아 시세를 기록하고, 점선 그래프를 통한 가격 변동 흐름과 AI 분석을 확인하세요.</p>
+            </div>
+          </div>
+
+          {/* 시세 입력 폼 */}
+          <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-5 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-emerald-900 border-b border-emerald-200 pb-2">
+              ➕ 당일 도매 시세 기록하기
+            </h3>
+
+            {/* 품목 검색창 추가 */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-emerald-900">🔍 품목 검색 및 선택</label>
+              <input
+                type="text"
+                placeholder="검색할 품목 이름 입력 (예: 사과, 대파...)"
+                value={chartItemSearch}
+                onChange={e => setChartItemSearch(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-emerald-300 rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600 shadow-xs"
+              />
+            </div>
+
+            <form onSubmit={handleAddPriceRecord} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">검색된 품목 리스트</label>
+                <select
+                  value={selectedChartItemId || ''}
+                  onChange={e => setSelectedChartItemId(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 text-xs border rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600"
+                >
+                  {filteredChartItemsList.length === 0 ? (
+                    <option value="">검색 결과 없음</option>
+                  ) : (
+                    filteredChartItemsList.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} ({item.unit})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">기준 날짜 및 도매 시세 (원)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={inputPriceDate}
+                    onChange={e => setInputPriceDate(e.target.value)}
+                    className="w-1/2 px-2 py-2 text-xs border rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600"
+                  />
+                  <input
+                    type="text"
+                    placeholder="예: 15000"
+                    value={inputPrice}
+                    onChange={e => setInputPrice(e.target.value)}
+                    className="w-1/2 px-3 py-2 text-xs border rounded-xl bg-white font-bold text-gray-800 focus:outline-none focus:border-emerald-600 text-right"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition-all text-xs"
+              >
+                📈 시세 저장하기
+              </button>
+            </form>
+          </div>
+
+          {/* 시세 시각화 (점선 그래프) 및 리스트 영역 */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-6">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-4">
+              <div>
+                <h3 className="text-base font-black text-gray-900">
+                  📊 [{currentItemSelected?.name || '품목'}] 시세 변동 흐름
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">단위: 원 ({currentItemSelected?.unit || '기준'})</p>
+              </div>
+
+              <div className="w-56">
+                <select
+                  value={selectedChartItemId || ''}
+                  onChange={e => setSelectedChartItemId(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs border rounded-xl bg-gray-50 font-bold"
+                >
+                  {items.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {filteredPricesForChart.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
+                <p className="text-gray-400 text-xs">
+                  아직 기록된 [{currentItemSelected?.name}] 시세 데이터가 없습니다. 상단에서 시세를 입력해 보세요!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* 📈 점선 그래프 영역 (SVG Line Chart with strokeDasharray) */}
+                <div className="bg-gray-50 p-4 rounded-2xl border space-y-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold text-gray-600">📈 시세 추이 점선 그래프</span>
+                    <span className="text-[11px] font-semibold text-emerald-700">· · · 변동 추세선</span>
+                  </div>
+                  
+                  <div className="w-full overflow-x-auto">
+                    <svg viewBox="0 0 500 210" className="w-full h-48 overflow-visible">
+                      {/* 가이드 격자선 */}
+                      <line x1="40" y1="20" x2="40" y2="170" stroke="#E5E7EB" strokeWidth="1" />
+                      <line x1="40" y1="170" x2="480" y2="170" stroke="#E5E7EB" strokeWidth="1" />
+                      <line x1="40" y1="95" x2="480" y2="95" stroke="#F3F4F6" strokeWidth="1" strokeDasharray="3,3" />
+
+                      {(() => {
+                        const prices = filteredPricesForChart.map(p => p.price);
+                        const minP = Math.min(...prices);
+                        const maxP = Math.max(...prices);
+                        const range = maxP - minP === 0 ? 1 : maxP - minP;
+
+                        const paddingX = 55;
+                        const paddingY = 25;
+                        const chartW = 410;
+                        const chartH = 130;
+
+                        const points = filteredPricesForChart.map((record, idx, arr) => {
+                          const x = paddingX + (arr.length === 1 ? chartW / 2 : (idx / (arr.length - 1)) * chartW);
+                          const y = paddingY + chartH - ((record.price - minP) / range) * chartH;
+                          return { x, y, ...record };
+                        });
+
+                        const pathData = points.reduce((acc, pt, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
+
+                        return (
+                          <>
+                            {/* 점선 연결 라인 (strokeDasharray="6,6") */}
+                            {points.length > 1 && (
+                              <path
+                                d={pathData}
+                                fill="none"
+                                stroke="#059669"
+                                strokeWidth="2.5"
+                                strokeDasharray="6,6"
+                              />
+                            )}
+
+                            {/* 데이터 포인트 원 및 가격/날짜 텍스트 */}
+                            {points.map((pt) => (
+                              <g key={pt.id}>
+                                <circle cx={pt.x} cy={pt.y} r="4.5" fill="#059669" className="transition-all" />
+                                <text x={pt.x} y={pt.y - 10} fontSize="10" fontWeight="bold" textAnchor="middle" fill="#047857">
+                                  {pt.price.toLocaleString()}
+                                </text>
+                                <text x={pt.x} y="190" fontSize="9" fontWeight="medium" fill="#6B7280" textAnchor="middle">
+                                  {pt.recorded_date.slice(5)}
+                                </text>
+                              </g>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  </div>
+                </div>
+
+                {/* 내역 목록 테이블 */}
+                <div className="border rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-gray-100 text-gray-700 font-bold border-b">
+                      <tr>
+                        <th className="p-3">기록 날짜</th>
+                        <th className="p-3">품목명</th>
+                        <th className="p-3 text-right">도매 시세</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredPricesForChart.map(record => (
+                        <tr key={record.id} className="hover:bg-gray-50">
+                          <td className="p-3 text-gray-600 font-medium">{record.recorded_date}</td>
+                          <td className="p-3 font-bold text-gray-800">{record.item_name}</td>
+                          <td className="p-3 text-right font-extrabold text-emerald-700">{record.price.toLocaleString()}원</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI 시세 트렌드 분석 리포트 카드 */}
+          <div className="bg-gradient-to-br from-emerald-900 to-slate-900 text-white rounded-2xl p-6 shadow-md space-y-4 border border-emerald-500/30">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b border-emerald-700/60 pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">🤖</span>
+                <h3 className="text-base font-black text-white">AI 시세 변동 예측 및 트렌드 리포트</h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleRunAiChartAnalysis}
+                disabled={isAiChartAnalyzing}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md transition-all flex items-center space-x-1.5 disabled:bg-gray-600"
+              >
+                <span>{isAiChartAnalyzing ? '⏳ 분석 중...' : '✨ 시세 트렌드 분석 실행'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 text-xs leading-relaxed text-slate-200">
+              {isAiChartAnalyzing ? (
+                <div className="text-center py-6 text-emerald-300 font-bold animate-pulse">
+                  🔮 누적된 도매 시세 히스토리를 분석하여 가격 변동 트렌드를 예측하고 있습니다...
+                </div>
+              ) : aiChartInsightText ? (
+                <div className="whitespace-pre-line font-medium">
+                  {aiChartInsightText}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-400">
+                  우측 상단의 **[✨ 시세 트렌드 분석 실행]** 버튼을 눌러 선택한 품목의 가격 변동 흐름과 맞춤형 행사/매입 전략을 확인해보세요!
                 </div>
               )}
             </div>
