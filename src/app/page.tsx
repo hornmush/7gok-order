@@ -144,7 +144,6 @@ export default function Home() {
         const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.94&longitude=128.55&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul')
         const data = await res.json()
         
-        // index 1이 내일 날씨
         const code = data.daily.weather_code[1] ?? 0
         const maxTemp = data.daily.temperature_2m_max[1] ?? 0
         const minTemp = data.daily.temperature_2m_min[1] ?? 0
@@ -756,7 +755,6 @@ export default function Home() {
     return false
   })
 
-  // 렌더링 헬퍼 컴포넌트
   const renderItemCard = (item: Item) => {
     const isChecked = orderInputs[item.id]?.checked || false
     const quantity = orderInputs[item.id]?.quantity || 1
@@ -859,7 +857,6 @@ export default function Home() {
     return acc
   }, {} as Record<string, number>)
 
-  // AI 분석 실행 함수
   const handleRunAiAnalysis = () => {
     setIsAiAnalyzing(true)
     setTimeout(() => {
@@ -882,7 +879,6 @@ export default function Home() {
     }, 800)
   }
 
-  // AI 시세 차트 분석 실행 함수
   const handleRunAiChartAnalysis = () => {
     setIsAiChartAnalyzing(true)
     setTimeout(() => {
@@ -991,7 +987,6 @@ export default function Home() {
 
       {mainTab === 'WRITE' && (
         <>
-          {/* 💡 [기능 2] 날씨·요일 연동 AI 수요 예측 및 발주 추천 카드 */}
           <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-4 mb-4 shadow-sm border border-blue-500/30 space-y-1.5">
             <div className="flex items-center space-x-2">
               <span className="text-base">🤖</span>
@@ -1639,7 +1634,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📈 [📈 시세차트] 탭 */}
       {mainTab === 'CHART' && (
         <div className="space-y-6">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -1877,9 +1871,9 @@ export default function Home() {
                 <div className="text-center py-6 text-emerald-300 font-bold animate-pulse">
                   🔮 누적된 도매 시세 히스토리를 분석하여 가격 변동 트렌드를 예측하고 있습니다...
                 </div>
-              ) : aiChartInsightTest ? (
+              ) : aiChartInsightText ? (
                 <div className="whitespace-pre-line font-medium">
-                  {aiChartInsightTest}
+                  {aiChartInsightText}
                 </div>
               ) : (
                 <div className="text-center py-4 text-slate-400">
@@ -1891,14 +1885,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* 💰 [🎉 행사관리] 탭 (행사 마진율 & 손익 시뮬레이터 추가) */}
       {mainTab === 'EVENT' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
             <span>🎉 농산팀 행사 계획 및 공유 (품목/가격 칸 분리형)</span>
           </h2>
 
-          {/* 💡 [기능 4] 행사 마진율 & 손익 시뮬레이터 */}
           <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex justify-between items-center border-b border-amber-200 pb-2">
               <h3 className="text-sm font-black text-amber-950 flex items-center space-x-1.5">
@@ -1967,7 +1959,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 시뮬레이션 결과 리스트 */}
             {simulatorItems.length > 0 && (
               <div className="bg-white rounded-xl border border-amber-200 overflow-hidden mt-3">
                 <table className="w-full text-left text-xs">
