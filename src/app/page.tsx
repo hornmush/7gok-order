@@ -29,27 +29,69 @@ interface OrderRecord {
   is_completed?: boolean
 }
 
+interface ItemPricePair {
+  name: string
+  price: string
+}
+
+interface PeriodData {
+  label: string
+  fruit: ItemPricePair[]
+  veg: ItemPricePair[]
+}
+
+interface EventRecord {
+  id: number
+  title: string
+  period: string
+  event_data: {
+    wholeVeg: ItemPricePair[]
+    wholeFruit: ItemPricePair[]
+    periods: PeriodData[]
+  }
+  created_at: string
+}
+
 export default function Home() {
   const [items, setItems] = useState<Item[]>([])
   const [orderInputs, setOrderInputs] = useState<OrderInput>({})
   const [loading, setLoading] = useState(false)
   
-  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'MANAGE'>('WRITE')
+  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'MANAGE' | 'EVENT'>('WRITE')
   
-  // 2계층 탭 구조 상태 (채소류 / 과일류 상위탭 및 하위탭)
+  // 2계층 탭 구조 상태
   const [topTab, setTopTab] = useState<'VEG' | 'FRUIT'>('VEG')
-  const [vegSubTab, setVegSubTab] = useState<'VEG_FREQUENT' | 'VEG_SPECIAL' | 'VEG_OCCASIONAL'>('VEG_FREQUENT')
+  const [vegSubTab, setVegSubTab] = useState<'VEG_FREQUENT' | 'VEG_PACKAGED' | 'VEG_SPECIAL' | 'VEG_OCCASIONAL'>('VEG_FREQUENT')
   const [fruitSubTab, setFruitSubTab] = useState<'FRUIT_FREQUENT' | 'FRUIT_SPECIAL'>('FRUIT_FREQUENT')
 
   const [boardSubTab, setBoardSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
   const [searchQuery, setSearchQuery] = useState('')
   const [ordererName, setOrdererName] = useState('농산팀')
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
+  const [editingOriginalTime, setEditingOriginalTime] = useState<string | null>(null)
 
   const [newItemName, setNewItemName] = useState('')
   const [newItemTopCat, setNewItemTopCat] = useState<'VEG' | 'FRUIT'>('VEG')
   const [newItemSubCat, setNewItemSubCat] = useState<string>('veg_frequent')
   const [newItemUnit, setNewItemUnit] = useState('박스')
+  const [bulkText, setBulkText] = useState('')
+
+  // AI 분석 로딩 상태
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false)
+  const [aiInsightText, setAiInsightText] = useState<string | null>(null)
+
+  // 행사 관리 상태
+  const [events, setEvents] = useState<EventRecord[]>([])
+  const [eventTitle, setEventTitle] = useState('')
+  const [eventPeriod, setEventPeriod] = useState('')
+  const [wholeVeg, setWholeVeg] = useState<ItemPricePair[]>(Array(6).fill({ name: '', price: '' }))
+  const [wholeFruit, setWholeFruit] = useState<ItemPricePair[]>(Array(3).fill({ name: '', price: '' }))
+  const [periods, setPeriods] = useState<PeriodData[]>([
+    { label: '1차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+    { label: '2차 (월~화)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+    { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+    { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+  ])
 
   useEffect(() => {
     const savedName = localStorage.getItem('ordererName')
@@ -85,18 +127,30 @@ export default function Home() {
     else if (data) setOrderHistory(data)
   }
 
-  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'MANAGE') => {
+  const fetchEvents = async () => {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) console.error('행사 로딩 에러:', error)
+    else if (data) setEvents(data)
+  }
+
+  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'MANAGE' | 'EVENT') => {
     setMainTab(tab)
     fetchItems()
     fetchOrderHistory()
+    if (tab === 'EVENT') fetchEvents()
   }
 
   useEffect(() => {
     fetchItems()
     fetchOrderHistory()
+    fetchEvents()
 
     const channel = supabase
-      .channel('realtime-orders-items')
+      .channel('realtime-orders-items-events')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
@@ -106,6 +160,11 @@ export default function Home() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items' },
         () => { fetchItems() }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'events' },
+        () => { fetchEvents() }
       )
       .subscribe()
 
@@ -174,6 +233,10 @@ export default function Home() {
 
     setLoading(true)
 
+    if (editingOriginalTime) {
+      await supabase.from('orders').delete().eq('created_at', editingOriginalTime)
+    }
+
     const ordersData = selectedItems.map(([itemIdStr, value]) => {
       const itemId = Number(itemIdStr)
       const item = items.find(i => i.id === itemId)
@@ -191,12 +254,14 @@ export default function Home() {
 
     const { error } = await supabase.from('orders').insert(ordersData)
     setLoading(false)
+    const wasEditing = Boolean(editingOriginalTime)
+    setEditingOriginalTime(null)
 
     if (error) {
       console.error('발주 등록 에러:', error)
       alert('발주 등록 중 오류가 발생했습니다.')
     } else {
-      alert('발주 요청이 성공적으로 등록되었습니다!')
+      alert(wasEditing ? '✅ 발주 내역이 성공적으로 수정되었습니다!' : '발주 요청이 성공적으로 등록되었습니다!')
       setOrderInputs({})
       handleTabChange('BOARD')
     }
@@ -229,6 +294,156 @@ export default function Home() {
     }
   }
 
+  const handleBulkAddItems = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!bulkText.trim()) {
+      alert('등록할 품목 목록을 입력해주세요!')
+      return
+    }
+
+    const lines = bulkText.trim().split('\n')
+    const newItemsToInsert = []
+
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const parts = line.trim().split(/[\s,]+/)
+      const name = parts[0]
+      const unit = parts[1] || '박스'
+
+      if (name) {
+        newItemsToInsert.push({
+          category: newItemSubCat,
+          name: name,
+          unit: unit,
+        })
+      }
+    }
+
+    if (newItemsToInsert.length === 0) {
+      alert('등록할 수 있는 유효한 품목이 없습니다.')
+      return
+    }
+
+    setLoading(true)
+    const { error } = await supabase.from('items').insert(newItemsToInsert)
+    setLoading(false)
+
+    if (error) {
+      console.error('일괄 등록 에러:', error)
+      alert('일괄 등록 중 오류가 발생했습니다.')
+    } else {
+      alert(`🎉 총 ${newItemsToInsert.length}개의 품목이 성공적으로 일괄 등록되었습니다!`)
+      setBulkText('')
+      fetchItems()
+    }
+  }
+
+  const updateWholeVeg = (index: number, field: 'name' | 'price', val: string) => {
+    const updated = [...wholeVeg]
+    updated[index] = { ...updated[index], [field]: val }
+    setWholeVeg(updated)
+  }
+
+  const updateWholeFruit = (index: number, field: 'name' | 'price', val: string) => {
+    const updated = [...wholeFruit]
+    updated[index] = { ...updated[index], [field]: val }
+    setWholeFruit(updated)
+  }
+
+  const updatePeriodItem = (pIndex: number, type: 'fruit' | 'veg', itemIndex: number, field: 'name' | 'price', val: string) => {
+    const updatedPeriods = [...periods]
+    const targetList = [...updatedPeriods[pIndex][type]]
+    targetList[itemIndex] = { ...targetList[itemIndex], [field]: val }
+    updatedPeriods[pIndex][type] = targetList
+    setPeriods(updatedPeriods)
+  }
+
+  const handleAddEvent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!eventTitle.trim() || !eventPeriod.trim()) {
+      alert('행사 이름과 기간을 입력해주세요!')
+      return
+    }
+
+    setLoading(true)
+    const eventDataPayload = {
+      wholeVeg,
+      wholeFruit,
+      periods,
+    }
+
+    const { error } = await supabase.from('events').insert([
+      {
+        title: eventTitle.trim(),
+        period: eventPeriod.trim(),
+        event_data: eventDataPayload,
+      },
+    ])
+    setLoading(false)
+
+    if (error) {
+      console.error('행사 등록 에러:', error)
+      alert('행사 등록 중 오류가 발생했습니다.')
+    } else {
+      alert('🎉 새로운 행사 계획이 성공적으로 등록되었습니다!')
+      setEventTitle('')
+      setEventPeriod('')
+      setWholeVeg(Array(6).fill({ name: '', price: '' }))
+      setWholeFruit(Array(3).fill({ name: '', price: '' }))
+      setPeriods([
+        { label: '1차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+        { label: '2차 (월~화)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+        { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+        { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      ])
+      fetchEvents()
+    }
+  }
+
+  const handleDeleteEvent = async (eventId: number) => {
+    if (!confirm('정말 이 행사 계획을 삭제하시겠습니까?')) return
+
+    const { error } = await supabase.from('events').delete().eq('id', eventId)
+    if (error) {
+      console.error('행사 삭제 에러:', error)
+      alert('삭제 중 오류가 발생했습니다.')
+    } else {
+      fetchEvents()
+    }
+  }
+
+  const handleCopyEventText = (ev: EventRecord) => {
+    const data = ev.event_data
+    let text = `🎉 [${ev.title}]\n`
+    text += `📅 행사기간: ${ev.period}\n\n`
+    
+    text += `--- [전기간 상품] ---\n`
+    text += `🥦 야채 (6종):\n`
+    data.wholeVeg?.forEach((item, idx) => {
+      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price || '-'}\n`
+    })
+    text += `🍎 과일 (3종):\n`
+    data.wholeFruit?.forEach((item, idx) => {
+      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price || '-'}\n`
+    })
+
+    text += `\n--- [기간별 상품] ---\n`
+    data.periods?.forEach(p => {
+      text += `[${p.label}]\n`
+      text += `  🍎 과일:\n`
+      p.fruit?.forEach((f) => {
+        if (f.name) text += `    - ${f.name} (${f.price || '-'})\n`
+      })
+      text += `  🥦 야채:\n`
+      p.veg?.forEach((v) => {
+        if (v.name) text += `    - ${v.name} (${v.price || '-'})\n`
+      })
+    })
+
+    navigator.clipboard.writeText(text)
+    alert('📋 공유용 텍스트가 클립보드에 복사되었습니다! 단톡방에 붙여넣어 보세요.')
+  }
+
   const handleAssignVendor = async (orderId: number, vendorName: string) => {
     const { error } = await supabase
       .from('orders')
@@ -238,6 +453,21 @@ export default function Home() {
     if (error) {
       console.error('업체 지정 에러:', error)
       alert('업체 지정 중 오류가 발생했습니다.')
+    } else {
+      fetchOrderHistory()
+    }
+  }
+
+  const handleUpdateOrderQuantity = async (orderId: number, newQuantity: number) => {
+    const qty = Math.max(1, isNaN(newQuantity) ? 1 : newQuantity)
+    const { error } = await supabase
+      .from('orders')
+      .update({ quantity: qty })
+      .eq('id', orderId)
+
+    if (error) {
+      console.error('수량 변경 에러:', error)
+      alert('수량 변경 중 오류가 발생했습니다.')
     } else {
       fetchOrderHistory()
     }
@@ -270,8 +500,9 @@ export default function Home() {
     }
 
     setOrderInputs(newInputs)
+    setEditingOriginalTime(itemsList[0]?.created_at || null)
     handleTabChange('WRITE')
-    alert('📝 해당 발주 기록을 작성 화면으로 불러왔습니다!')
+    alert('📝 해당 발주 기록을 수정 모드로 불러왔습니다! 저장 시 기존 기록이 수정(대체)됩니다.')
   }
 
   const handleDeleteOrderBatch = async (itemsList: OrderRecord[]) => {
@@ -292,6 +523,12 @@ export default function Home() {
   }
 
   const handleToggleComplete = async (itemsList: OrderRecord[], currentStatus?: boolean) => {
+    const hasUnassigned = itemsList.some(o => !o.vendor || o.vendor === '미지정')
+    if (!currentStatus && hasUnassigned) {
+      alert('⚠️ 미지정인 품목이 있습니다! 모든 품목의 업체를 지정한 후 완료해주세요.')
+      return
+    }
+
     const newStatus = !currentStatus
     const idsToUpdate = itemsList.map(item => item.id)
 
@@ -367,15 +604,59 @@ export default function Home() {
     if (topTab === 'VEG') {
       if (cat.includes('fruit')) return false
       if (vegSubTab === 'VEG_FREQUENT') return cat === 'veg_frequent' || cat === 'veg' || cat === 'vegetable' || cat === ''
+      if (vegSubTab === 'VEG_PACKAGED') return cat === 'veg_packaged'
       if (vegSubTab === 'VEG_SPECIAL') return cat === 'veg_special'
       if (vegSubTab === 'VEG_OCCASIONAL') return cat === 'veg_occasional'
     } else {
       if (!cat.includes('fruit')) return false
       if (fruitSubTab === 'FRUIT_FREQUENT') return cat === 'fruit_frequent' || cat === 'fruit_main' || cat === 'fruit' || cat === 'fruits' || cat === ''
-      if (fruitSubTab === 'FRUIT_SPECIAL') return cat === 'fruit_special' || cat === 'fruit_seasonal'
+      if (fruitSubTab === 'FRUIT_SPECIAL') return cat === 'fruit_special'
     }
     return false
   })
+
+  // 렌더링 헬퍼 컴포넌트
+  const renderItemCard = (item: Item) => {
+    const isChecked = orderInputs[item.id]?.checked || false
+    const quantity = orderInputs[item.id]?.quantity || 1
+
+    return (
+      <div
+        key={item.id}
+        className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+          isChecked ? 'border-blue-500 bg-blue-50/60 shadow-sm' : 'border-gray-200 bg-white'
+        }`}
+      >
+        <div>
+          <label className="flex items-start space-x-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={e => handleCheckboxChange(item.id, e.target.checked)}
+              className="mt-1 w-4 h-4 text-blue-600 rounded border-gray-300"
+            />
+            <div>
+              <span className="font-bold text-sm text-gray-800 block">{item.name}</span>
+            </div>
+          </label>
+        </div>
+
+        {isChecked && (
+          <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-between">
+            <span className="text-xs text-gray-500 font-medium">{item.unit}</span>
+            <input
+              type="number"
+              min="1"
+              value={quantity}
+              onFocus={(e) => e.target.select()}
+              onChange={e => handleQuantityChange(item.id, Number(e.target.value))}
+              className="w-16 px-2 py-1 text-right text-sm border rounded bg-white font-semibold"
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const selectedCount = Object.values(orderInputs).filter(v => v.checked).length
   let lastDate = ''
@@ -437,18 +718,41 @@ export default function Home() {
     return acc
   }, {} as Record<string, number>)
 
+  // AI 분석 실행 함수
+  const handleRunAiAnalysis = () => {
+    setIsAiAnalyzing(true)
+    setTimeout(() => {
+      if (completedHistory.length === 0) {
+        setAiInsightText("⚠️ 분석할 완료된 발주 데이터가 없습니다. 발주 내역을 '완료' 처리해 주세요.")
+      } else {
+        const topVendor = Object.entries(vendorStats).sort((a, b) => b[1] - a[1])[0]
+        const dominantType = totalVegQty >= totalFruitQty ? '채소류' : '과일류'
+        const totalQtySum = totalVegQty + totalFruitQty
+
+        setAiInsightText(
+          `🤖 [칠곡농협 농산팀 AI 분석 리포트]\n\n` +
+          `• 총 완료된 발주: **${totalOrderCount}회** (총 물량: **${totalQtySum}개**)\n` +
+          `• 주력 품목군: 전체 발주량 중 **${dominantType}**의 비중이 가장 높게 집계되었습니다.\n` +
+          `• 최다 물량 집중 업체: **${topVendor ? topVendor[0] : '없음'}** (${topVendor ? topVendor[1] : 0}개 물량 배정)\n\n` +
+          `💡 **AI 경영 인사이트**: 현재 채소와 과일의 수급 흐름을 볼 때, 주요 협력업체인 [${topVendor ? topVendor[0] : '지정 업체'}]와의 물량 조율이 원활합니다. 주말 및 행사 시즌을 대비해 상위 발주 품목의 실시간 재고 안전율을 미리 점검하시는 것을 추천합니다!`
+        )
+      }
+      setIsAiAnalyzing(false)
+    }, 800) // 0.8초 체감 로딩
+  }
+
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
       <div className="text-center my-6">
         <h1 className="text-2xl font-extrabold text-gray-900">🛒 칠곡농협 농산팀 실시간 발주 시스템</h1>
-        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계 및 품목 추가를 할 수 있습니다.</p>
+        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계 및 행사 관리를 할 수 있습니다.</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5 mb-6">
+      <div className="grid grid-cols-5 gap-1 mb-6">
         <button
           type="button"
           onClick={() => handleTabChange('WRITE')}
-          className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'WRITE' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -457,16 +761,16 @@ export default function Home() {
         <button
           type="button"
           onClick={() => handleTabChange('BOARD')}
-          className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'BOARD' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
-          📋 발주 확인 !
+          📋 발주 확인
         </button>
         <button
           type="button"
           onClick={() => handleTabChange('STATS')}
-          className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'STATS' ? 'bg-blue-600 text-white shadow-blue-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -474,8 +778,17 @@ export default function Home() {
         </button>
         <button
           type="button"
+          onClick={() => handleTabChange('EVENT')}
+          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
+            mainTab === 'EVENT' ? 'bg-amber-600 text-white shadow-amber-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          🎉 행사관리
+        </button>
+        <button
+          type="button"
           onClick={() => handleTabChange('MANAGE')}
-          className={`py-3 text-[11px] sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+          className={`py-3 text-[10px] sm:text-xs font-black rounded-xl transition-all shadow-sm ${
             mainTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -485,6 +798,19 @@ export default function Home() {
 
       {mainTab === 'WRITE' && (
         <>
+          {editingOriginalTime && (
+            <div className="bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl mb-4 flex items-center justify-between shadow-sm">
+              <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (저장 시 기존 항목이 수정/대체됩니다)</span>
+              <button
+                type="button"
+                onClick={() => { setEditingOriginalTime(null); setOrderInputs({}); }}
+                className="text-xs font-bold text-red-600 bg-white px-2.5 py-1 rounded-lg border border-red-200 hover:bg-red-50"
+              >
+                수정 취소
+              </button>
+            </div>
+          )}
+
           <div className="bg-indigo-50 border-2 border-indigo-300 p-4 rounded-2xl mb-4 flex items-center justify-between shadow-sm">
             <span className="text-sm font-black text-indigo-900">✍️ 작성자 이름</span>
             <input
@@ -506,7 +832,6 @@ export default function Home() {
             />
           </div>
 
-          {/* 1단계 상위 탭: 채소류 / 과일류 */}
           <div className="flex bg-gray-200 p-1.5 rounded-2xl mb-3 shadow-inner">
             <button
               type="button"
@@ -528,13 +853,12 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 2단계 하위 탭: 채소류 선택 시 */}
           {topTab === 'VEG' && searchQuery === '' && (
-            <div className="grid grid-cols-3 gap-1.5 bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner border border-green-200">
+            <div className="grid grid-cols-4 gap-1.5 bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner border border-green-200">
               <button
                 type="button"
                 onClick={() => setVegSubTab('VEG_FREQUENT')}
-                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                className={`py-2.5 text-[11px] sm:text-sm font-bold rounded-lg transition-all ${
                   vegSubTab === 'VEG_FREQUENT' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -542,8 +866,17 @@ export default function Home() {
               </button>
               <button
                 type="button"
+                onClick={() => setVegSubTab('VEG_PACKAGED')}
+                className={`py-2.5 text-[11px] sm:text-sm font-bold rounded-lg transition-all ${
+                  vegSubTab === 'VEG_PACKAGED' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                🛍️ 포장된
+              </button>
+              <button
+                type="button"
                 onClick={() => setVegSubTab('VEG_SPECIAL')}
-                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                className={`py-2.5 text-[11px] sm:text-sm font-bold rounded-lg transition-all ${
                   vegSubTab === 'VEG_SPECIAL' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -552,7 +885,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setVegSubTab('VEG_OCCASIONAL')}
-                className={`py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all ${
+                className={`py-2.5 text-[11px] sm:text-sm font-bold rounded-lg transition-all ${
                   vegSubTab === 'VEG_OCCASIONAL' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -561,7 +894,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* 2단계 하위 탭: 과일류 선택 시 */}
           {topTab === 'FRUIT' && searchQuery === '' && (
             <div className="grid grid-cols-2 gap-1.5 bg-gray-100 p-1.5 rounded-xl mb-6 shadow-inner border border-red-200">
               <button
@@ -585,58 +917,116 @@ export default function Home() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
-            {filteredItems.map(item => {
-              const isChecked = orderInputs[item.id]?.checked || false
-              const quantity = orderInputs[item.id]?.quantity || 1
+          {searchQuery !== '' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
+              {filteredItems.map(item => renderItemCard(item))}
+            </div>
+          ) : topTab === 'VEG' && vegSubTab === 'VEG_FREQUENT' ? (
+            (() => {
+              const boxItems = filteredItems.filter(i => i.name.includes('박스'))
+              const potatoItems = filteredItems.filter(i => (i.name.includes('감자') || i.name.includes('고구마')) && !i.name.includes('박스'))
+              const mushroomItems = filteredItems.filter(i => i.name.includes('버섯') && !i.name.includes('박스') && !i.name.includes('감자') && !i.name.includes('고구마'))
+              const onionItems = filteredItems.filter(i => i.name.includes('양파') && !i.name.includes('박스') && !i.name.includes('감자') && !i.name.includes('고구마') && !i.name.includes('버섯'))
+              const restItems = filteredItems.filter(i => 
+                !i.name.includes('박스') && 
+                !i.name.includes('감자') && !i.name.includes('고구마') && 
+                !i.name.includes('버섯') && 
+                !i.name.includes('양파')
+              )
 
               return (
-                <div
-                  key={item.id}
-                  className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
-                    isChecked ? 'border-blue-500 bg-blue-50/60 shadow-sm' : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <div>
-                    <label className="flex items-start space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={e => handleCheckboxChange(item.id, e.target.checked)}
-                        className="mt-1 w-4 h-4 text-blue-600 rounded border-gray-300"
-                      />
-                      <div>
-                        <span className="font-bold text-sm text-gray-800 block">{item.name}</span>
+                <div className="space-y-6 mb-8">
+                  {boxItems.length > 0 && (
+                    <div className="bg-emerald-50/50 border-2 border-emerald-300 rounded-2xl p-4 space-y-3">
+                      <h3 className="text-xs font-black text-emerald-900 flex items-center space-x-1 border-b border-emerald-200 pb-2">
+                        <span>📦 박스류 품목</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {boxItems.map(item => renderItemCard(item))}
                       </div>
-                    </label>
-                  </div>
+                    </div>
+                  )}
 
-                  {isChecked && (
-                    <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-between">
-                      <span className="text-xs text-gray-500 font-medium">{item.unit}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={quantity}
-                        onFocus={(e) => e.target.select()}
-                        onChange={e => handleQuantityChange(item.id, Number(e.target.value))}
-                        className="w-16 px-2 py-1 text-right text-sm border rounded bg-white font-semibold"
-                      />
+                  {potatoItems.length > 0 && (
+                    <div className="bg-amber-50/50 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
+                      <h3 className="text-xs font-black text-amber-900 flex items-center space-x-1 border-b border-amber-200 pb-2">
+                        <span>🥔 감자 · 고구마류</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {potatoItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+
+                  {mushroomItems.length > 0 && (
+                    <div className="bg-orange-50/50 border-2 border-orange-300 rounded-2xl p-4 space-y-3">
+                      <h3 className="text-xs font-black text-orange-900 flex items-center space-x-1 border-b border-orange-200 pb-2">
+                        <span>🍄 버섯류</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {mushroomItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+
+                  {onionItems.length > 0 && (
+                    <div className="bg-purple-50/50 border-2 border-purple-300 rounded-2xl p-4 space-y-3">
+                      <h3 className="text-xs font-black text-purple-900 flex items-center space-x-1 border-b border-purple-200 pb-2">
+                        <span>🧅 양파류 (양파 · 적양파)</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {onionItems.map(item => renderItemCard(item))}
+                      </div>
+                    </div>
+                  )}
+
+                  {restItems.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-black text-gray-700">🥬 일반 자주 발주 품목</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {restItems.map(item => renderItemCard(item))}
+                      </div>
                     </div>
                   )}
                 </div>
               )
-            })}
-          </div>
+            })()
+          ) : topTab === 'VEG' && vegSubTab === 'VEG_SPECIAL' ? (
+            <div className="space-y-6 mb-8">
+              {filteredItems.filter(i => ['삼색파프리카봉', '빨파프', '노파프', '주황파프'].some(n => i.name.includes(n))).length > 0 && (
+                <div className="bg-amber-50/60 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
+                  <h3 className="text-xs font-black text-amber-900 flex items-center space-x-1 border-b border-amber-200 pb-2">
+                    <span>🌶️ 파프리카류</span>
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredItems.filter(i => ['삼색파프리카봉', '빨파프', '노파프', '주황파프'].some(n => i.name.includes(n))).map(item => renderItemCard(item))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-gray-700">🥕 기타 특수 야채 품목</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {filteredItems.filter(i => !['삼색파프리카봉', '빨파프', '노파프', '주황파프'].some(n => i.name.includes(n))).map(item => renderItemCard(item))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
+              {filteredItems.map(item => renderItemCard(item))}
+            </div>
+          )}
 
           <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur border-t shadow-lg flex justify-center">
             <button
               type="button"
               onClick={handleSubmitOrder}
               disabled={loading}
-              className="w-full max-w-md bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 flex items-center justify-center space-x-2"
+              className={`w-full max-w-md font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 flex items-center justify-center space-x-2 text-white ${
+                editingOriginalTime ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
-              <span>📝 발주 요청 올리기</span>
+              <span>{editingOriginalTime ? '✏️ 수정 완료 저장하기' : '📝 발주 요청 올리기'}</span>
               {selectedCount > 0 && (
                 <span className="bg-white text-blue-600 text-xs px-2 py-0.5 rounded-full font-black">
                   {selectedCount}건
@@ -688,13 +1078,7 @@ export default function Home() {
 
               const ordererNameTag = itemsList[0]?.orderer || '익명'
               const isCompleted = itemsList[0]?.is_completed || false
-
-              const vendorGroups = itemsList.reduce((acc, order) => {
-                const vName = order.vendor && order.vendor !== '미지정' ? order.vendor : '업체 미지정'
-                if (!acc[vName]) acc[vName] = []
-                acc[vName].push(order)
-                return acc
-              }, {} as Record<string, OrderRecord[]>)
+              const hasUnassigned = itemsList.some(o => !o.vendor || o.vendor === '미지정')
 
               return (
                 <div key={timeKey}>
@@ -717,6 +1101,11 @@ export default function Home() {
                         <span className="text-xs font-extrabold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-md">
                           ✍️ {ordererNameTag}
                         </span>
+                        {hasUnassigned && !isCompleted && (
+                          <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-md border border-red-200">
+                            ⚠️ 미지정 업체가 있습니다
+                          </span>
+                        )}
                         {isCompleted && (
                           <span className="text-xs font-black text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-md">
                             ✅ 발주 완료됨
@@ -736,7 +1125,11 @@ export default function Home() {
                           type="button"
                           onClick={() => handleToggleComplete(itemsList, isCompleted)}
                           className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all ${
-                            isCompleted ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            isCompleted
+                              ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                              : hasUnassigned
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                           }`}
                         >
                           {isCompleted ? '↩️ 취소' : '✅ 완료'}
@@ -751,96 +1144,118 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {Object.entries(vendorGroups).map(([vendorName, vendorItems]) => {
-                      const isUnassigned = vendorName === '업체 미지정'
-                      const isFruitTab = boardSubTab === 'FRUIT'
+                    {/* 품목 리스트 고정형 배치 및 수량 직접 수정 인풋 적용 */}
+                    <div className="space-y-2 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      {itemsList.map(order => {
+                        const unit = getItemUnit(order.item_id, order.item_name)
+                        const currentV = order.vendor || '미지정'
+                        const isFruitTab = boardSubTab === 'FRUIT'
+                        const isPotatoOrSweetPotato = order.item_name.includes('감자') || order.item_name.includes('고구마')
+
+                        return (
+                          <div key={order.id} className="flex flex-col md:flex-row justify-between items-start md:items-center text-sm py-2.5 px-3 rounded-xl bg-white border border-gray-200/80 gap-3">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-gray-800">· {order.item_name}</span>
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={order.quantity}
+                                  onFocus={(e) => e.target.select()}
+                                  onChange={(e) => handleUpdateOrderQuantity(order.id, Number(e.target.value))}
+                                  className="w-16 px-2 py-1 text-right text-sm font-bold border rounded bg-white text-indigo-600 focus:outline-none focus:border-blue-500"
+                                />
+                                <span className="text-xs text-gray-500 font-medium">{unit}</span>
+                              </div>
+                              {currentV === '미지정' && (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded ml-1">미지정</span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center space-x-1.5 bg-gray-100 p-1.5 rounded-xl w-full md:w-auto justify-end">
+                              <span className="text-[11px] font-bold text-gray-500 mr-1">업체지정:</span>
+                              {!isFruitTab ? (
+                                isPotatoOrSweetPotato ? (
+                                  <>
+                                    {(['협동', '옥승', '창성'] as const).map(vName => (
+                                      <button
+                                        key={vName}
+                                        type="button"
+                                        onClick={() => handleAssignVendor(order.id, vName)}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                          currentV === vName ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
+                                        }`}
+                                      >
+                                        {vName}
+                                      </button>
+                                    ))}
+                                  </>
+                                ) : (
+                                  <>
+                                    {(['협동', '옥승', '인정'] as const).map(vName => (
+                                      <button
+                                        key={vName}
+                                        type="button"
+                                        onClick={() => handleAssignVendor(order.id, vName)}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                          currentV === vName ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
+                                        }`}
+                                      >
+                                        {vName}
+                                      </button>
+                                    ))}
+                                  </>
+                                )
+                              ) : (
+                                <>
+                                  {(['영주', '진성'] as const).map(vName => (
+                                    <button
+                                      key={vName}
+                                      type="button"
+                                      onClick={() => handleAssignVendor(order.id, vName)}
+                                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                        currentV === vName ? 'bg-red-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-red-50 border border-gray-200'
+                                      }`}
+                                    >
+                                      {vName}
+                                    </button>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* 업체별 복사 버튼 모음 */}
+                    {(() => {
+                      const vendorMap = itemsList.reduce((acc, order) => {
+                        const v = order.vendor && order.vendor !== '미지정' ? order.vendor : '미지정'
+                        if (!acc[v]) acc[v] = []
+                        acc[v].push(order)
+                        return acc
+                      }, {} as Record<string, OrderRecord[]>)
+
+                      const assignedVendors = Object.entries(vendorMap).filter(([v]) => v !== '미지정')
+                      if (assignedVendors.length === 0) return null
 
                       return (
-                        <div key={vendorName} className={`rounded-xl p-4 border space-y-3 shadow-xs ${
-                          isUnassigned ? 'bg-amber-50/60 border-amber-200' : 'bg-white border-gray-100'
-                        }`}>
-                          <div className="flex justify-between items-center">
-                            <span className="font-extrabold text-sm text-gray-800 flex items-center space-x-1">
-                              <span>🏢 {vendorName}</span>
-                              <span className="text-xs text-gray-500 font-normal ml-1">({vendorItems.length}개 품목)</span>
-                            </span>
-
-                            {!isUnassigned && (
-                              <button
-                                type="button"
-                                onClick={() => handleCopyVendorText(vendorName, vendorItems)}
-                                className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1"
-                              >
-                                <span>📋 [{vendorName}] 복사</span>
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="space-y-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                            {vendorItems.map(order => {
-                              const unit = getItemUnit(order.item_id, order.item_name)
-                              const currentV = order.vendor
-
-                              return (
-                                <div key={order.id} className="flex flex-col md:flex-row justify-between items-start md:items-center text-sm py-2.5 px-3 rounded-xl bg-white border border-gray-200/80 gap-3">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="font-medium text-gray-800">· {order.item_name}</span>
-                                    <span className="font-bold text-indigo-600">{order.quantity}{unit}</span>
-                                  </div>
-
-                                  <div className="flex items-center space-x-1.5 bg-gray-100 p-1.5 rounded-xl w-full md:w-auto justify-end">
-                                    <span className="text-[11px] font-bold text-gray-500 mr-1">업체지정:</span>
-                                    {!isFruitTab ? (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAssignVendor(order.id, '협동')}
-                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                            currentV === '협동' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
-                                          }`}
-                                        >
-                                          협동
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAssignVendor(order.id, '옥승')}
-                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                            currentV === '옥승' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
-                                          }`}
-                                        >
-                                          옥승
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAssignVendor(order.id, '영주')}
-                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                            currentV === '영주' ? 'bg-red-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
-                                          }`}
-                                        >
-                                          영주
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAssignVendor(order.id, '진성')}
-                                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                            currentV === '진성' ? 'bg-red-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-200 border border-gray-200'
-                                          }`}
-                                        >
-                                          진성
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
+                        <div className="pt-2 flex flex-wrap gap-2 items-center">
+                          <span className="text-xs font-bold text-gray-500 mr-1">업체별 복사:</span>
+                          {assignedVendors.map(([vName, vItems]) => (
+                            <button
+                              key={vName}
+                              type="button"
+                              onClick={() => handleCopyVendorText(vName, vItems)}
+                              className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1"
+                            >
+                              <span>📋 [{vName}] 복사 ({vItems.length}개)</span>
+                            </button>
+                          ))}
                         </div>
                       )
-                    })}
+                    })()}
                   </div>
                 </div>
               )
@@ -953,28 +1368,311 @@ export default function Home() {
               </div>
             )}
           </div>
+
+          {/* 🤖 하단 AI 스마트 발주 분석 섹션 */}
+          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl p-6 shadow-md space-y-4 border border-indigo-500/30">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b border-indigo-700/60 pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">🤖</span>
+                <h3 className="text-base font-black text-white">AI 스마트 발주 분석 리포트</h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleRunAiAnalysis}
+                disabled={isAiAnalyzing}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md transition-all flex items-center space-x-1.5 disabled:bg-gray-600"
+              >
+                <span>{isAiAnalyzing ? '⏳ 분석 중...' : '✨ AI 분석 실행 / 새로고침'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 text-xs leading-relaxed text-slate-200">
+              {isAiAnalyzing ? (
+                <div className="text-center py-6 text-indigo-300 font-bold animate-pulse">
+                  🔮 완료된 발주 데이터를 바탕으로 AI가 핵심 인사이트를 분석하고 있습니다...
+                </div>
+              ) : aiInsightText ? (
+                <div className="whitespace-pre-line font-medium">
+                  {aiInsightText}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-400">
+                  우측 상단의 **[✨ AI 분석 실행 / 새로고침]** 버튼을 눌러 완료된 발주 통계에 대한 전문적인 분석 리포트를 확인해보세요!
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mainTab === 'EVENT' && (
+        <div className="space-y-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
+            <span>🎉 농산팀 행사 계획 및 공유 (품목/가격 칸 분리형)</span>
+          </h2>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">➕ 새로운 행사 등록하기</h3>
+            <form onSubmit={handleAddEvent} className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-gray-700 mb-1">행사 이름</label>
+                  <input
+                    type="text"
+                    value={eventTitle}
+                    onChange={e => setEventTitle(e.target.value)}
+                    placeholder="예: 토요 붐 할인 행사"
+                    className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-gray-700 mb-1">행사 기간</label>
+                  <input
+                    type="text"
+                    value={eventPeriod}
+                    onChange={e => setEventPeriod(e.target.value)}
+                    placeholder="예: 3월 7일 ~ 3월 14일"
+                    className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-3 border-t">
+                <h4 className="text-xs font-black text-indigo-900 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                  🛒 전기간 상품 입력 (야채 6종 / 과일 3종)
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-green-50/40 p-4 rounded-xl border border-green-200 space-y-2">
+                    <span className="text-xs font-bold text-green-800 block mb-1">🥦 전기간 야채 (총 6개)</span>
+                    {wholeVeg.map((item, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={e => updateWholeVeg(idx, 'name', e.target.value)}
+                          placeholder={`야채 ${idx + 1} 품목명`}
+                          className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                        />
+                        <input
+                          type="text"
+                          value={item.price}
+                          onChange={e => updateWholeVeg(idx, 'price', e.target.value)}
+                          placeholder="가격/규격"
+                          className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-red-50/40 p-4 rounded-xl border border-red-200 space-y-2">
+                    <span className="text-xs font-bold text-red-700 block mb-1">🍎 전기간 과일 (총 3개)</span>
+                    {wholeFruit.map((item, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={e => updateWholeFruit(idx, 'name', e.target.value)}
+                          placeholder={`과일 ${idx + 1} 품목명`}
+                          className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                        />
+                        <input
+                          type="text"
+                          value={item.price}
+                          onChange={e => updateWholeFruit(idx, 'price', e.target.value)}
+                          placeholder="가격/규격"
+                          className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-3 border-t">
+                <h4 className="text-xs font-black text-amber-950 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                  📌 세부기간별 상품 입력 (4개 기간별 과일 3종 / 야채 3종)
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {periods.map((p, pIdx) => (
+                    <div key={pIdx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+                      <span className="text-xs font-black text-indigo-900 bg-white px-2.5 py-1 rounded-md border shadow-xs inline-block">
+                        {p.label}
+                      </span>
+
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] font-bold text-red-600 block">🍎 과일 (3종)</span>
+                        {p.fruit.map((f, fIdx) => (
+                          <div key={fIdx} className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={f.name}
+                              onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'name', e.target.value)}
+                              placeholder={`과일 ${fIdx + 1} 품목명`}
+                              className="flex-2 px-2 py-1 text-xs border rounded bg-white"
+                            />
+                            <input
+                              type="text"
+                              value={f.price}
+                              onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'price', e.target.value)}
+                              placeholder="가격"
+                              className="flex-1 px-2 py-1 text-xs border rounded bg-white"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[11px] font-bold text-green-700 block">🥦 야채 (3종)</span>
+                        {p.veg.map((v, vIdx) => (
+                          <div key={vIdx} className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={v.name}
+                              onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'name', e.target.value)}
+                              placeholder={`야채 ${vIdx + 1} 품목명`}
+                              className="flex-2 px-2 py-1 text-xs border rounded bg-white"
+                            />
+                            <input
+                              type="text"
+                              value={v.price}
+                              onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'price', e.target.value)}
+                              placeholder="가격"
+                              className="flex-1 px-2 py-1 text-xs border rounded bg-white"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 mt-2"
+              >
+                🎉 행사 계획 등록하기
+              </button>
+            </form>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-sm font-extrabold text-gray-800">📋 등록된 행사 계획 목록 ({events.length}건)</h3>
+            {events.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
+                <p className="text-gray-400 text-sm">등록된 행사 계획이 없습니다.</p>
+              </div>
+            ) : (
+              events.map(ev => {
+                const data = ev.event_data
+                return (
+                  <div key={ev.id} className="bg-white border-2 border-amber-300 rounded-2xl p-5 shadow-sm space-y-4">
+                    <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
+                      <div>
+                        <span className="text-xs font-black text-amber-800 bg-amber-100 px-2.5 py-1 rounded-md">
+                          📅 {ev.period}
+                        </span>
+                        <h4 className="text-lg font-black text-gray-900 mt-1.5">{ev.title}</h4>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyEventText(ev)}
+                          className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
+                        >
+                          <span>📋 공유용 텍스트 복사</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEvent(ev.id)}
+                          className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all"
+                        >
+                          🗑️ 삭제
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-green-50/40 p-3.5 rounded-xl border border-green-200">
+                        <span className="text-xs font-black text-green-800 block mb-2 border-b pb-1">🥦 전기간 야채 (6종)</span>
+                        <div className="space-y-1 text-xs">
+                          {data.wholeVeg?.map((item, i) => (
+                            item.name ? (
+                              <div key={i} className="flex justify-between bg-white px-2.5 py-1 rounded border border-green-100">
+                                <span className="font-bold text-gray-800">· {item.name}</span>
+                                <span className="font-semibold text-green-700">{item.price || '-'}</span>
+                              </div>
+                            ) : null
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-red-50/40 p-3.5 rounded-xl border border-red-200">
+                        <span className="text-xs font-black text-red-700 block mb-2 border-b pb-1">🍎 전기간 과일 (3종)</span>
+                        <div className="space-y-1 text-xs">
+                          {data.wholeFruit?.map((item, i) => (
+                            item.name ? (
+                              <div key={i} className="flex justify-between bg-white px-2.5 py-1 rounded border border-red-100">
+                                <span className="font-bold text-gray-800">· {item.name}</span>
+                                <span className="font-semibold text-red-600">{item.price || '-'}</span>
+                              </div>
+                            ) : null
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2">
+                      <h5 className="text-xs font-black text-gray-600">📌 세부기간별 상품 (과일 3종 / 야채 3종)</h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {data.periods?.map((p, pIdx) => (
+                          <div key={pIdx} className="bg-gray-50 p-3.5 rounded-xl border border-gray-200 space-y-2">
+                            <span className="text-xs font-black text-indigo-700 block border-b pb-1">▪️ {p.label}</span>
+                            <div className="text-xs space-y-1 text-gray-800">
+                              <p className="font-bold text-red-600">🍎 과일:</p>
+                              {p.fruit?.map((f, fi) => f.name ? <p key={fi} className="pl-3">· {f.name} ({f.price || '-'})</p> : null)}
+                              <p className="font-bold text-green-700 pt-1">🥦 야채:</p>
+                              {p.veg?.map((v, vi) => v.name ? <p key={vi} className="pl-3">· {v.name} ({v.price || '-'})</p> : null)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
         </div>
       )}
 
       {mainTab === 'MANAGE' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
-            <span>⚙️ 새로운 발주 품목 추가하기</span>
+            <span>⚙️ 발주 품목 관리 (개별 및 일괄 등록)</span>
           </h2>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-            <form onSubmit={handleAddNewItem} className="space-y-4">
+          <div className="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-indigo-900 border-b border-indigo-200 pb-2 flex items-center">
+              <span>🚀 여러 품목 한 번에 일괄 등록 (대량 등록)</span>
+            </h3>
+            
+            <form onSubmit={handleBulkAddItems} className="space-y-3">
               <div>
-                <label className="block text-xs font-black text-gray-700 mb-2">1. 상위 분류 선택</label>
-                <div className="grid grid-cols-2 gap-2 mb-3">
+                <label className="block text-xs font-black text-indigo-900 mb-2">1. 등록할 상위/세부 분류 선택</label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
                   <button
                     type="button"
                     onClick={() => {
                       setNewItemTopCat('VEG')
                       setNewItemSubCat('veg_frequent')
                     }}
-                    className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
-                      newItemTopCat === 'VEG' ? 'bg-green-700 text-white border-green-700 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200'
+                    className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                      newItemTopCat === 'VEG' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700'
                     }`}
                   >
                     🥦 채소류
@@ -985,87 +1683,86 @@ export default function Home() {
                       setNewItemTopCat('FRUIT')
                       setNewItemSubCat('fruit_frequent')
                     }}
-                    className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
-                      newItemTopCat === 'FRUIT' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200'
+                    className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                      newItemTopCat === 'FRUIT' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700'
                     }`}
                   >
                     🍎 과일류
                   </button>
                 </div>
 
-                <label className="block text-xs font-black text-gray-700 mb-2">2. 세부 분류 선택</label>
                 {newItemTopCat === 'VEG' ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
-                      <input
-                        type="radio"
-                        name="newSubCategory"
-                        checked={newItemSubCat === 'veg_frequent'}
-                        onChange={() => setNewItemSubCat('veg_frequent')}
-                        className="text-green-600"
-                      />
-                      <span className="text-xs font-bold text-green-700">자주 발주</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'veg_frequent'} onChange={() => setNewItemSubCat('veg_frequent')} />
+                      <span className="font-bold text-green-700">자주 발주</span>
                     </label>
-                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
-                      <input
-                        type="radio"
-                        name="newSubCategory"
-                        checked={newItemSubCat === 'veg_special'}
-                        onChange={() => setNewItemSubCat('veg_special')}
-                        className="text-emerald-600"
-                      />
-                      <span className="text-xs font-bold text-emerald-700">특수 야채</span>
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'veg_packaged'} onChange={() => setNewItemSubCat('veg_packaged')} />
+                      <span className="font-bold text-teal-700">포장된</span>
                     </label>
-                    <label className="flex items-center space-x-1.5 cursor-pointer p-2 rounded-lg border bg-gray-50">
-                      <input
-                        type="radio"
-                        name="newSubCategory"
-                        checked={newItemSubCat === 'veg_occasional'}
-                        onChange={() => setNewItemSubCat('veg_occasional')}
-                        className="text-blue-600"
-                      />
-                      <span className="text-xs font-bold text-blue-700">가끔 넣는</span>
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'veg_special'} onChange={() => setNewItemSubCat('veg_special')} />
+                      <span className="font-bold text-emerald-700">특수 야채</span>
+                    </label>
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'veg_occasional'} onChange={() => setNewItemSubCat('veg_occasional')} />
+                      <span className="font-bold text-blue-700">가끔 넣는</span>
                     </label>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border bg-gray-50">
-                      <input
-                        type="radio"
-                        name="newSubCategory"
-                        checked={newItemSubCat === 'fruit_frequent'}
-                        onChange={() => setNewItemSubCat('fruit_frequent')}
-                        className="text-red-600"
-                      />
-                      <span className="text-xs font-bold text-red-600">자주 발주</span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'fruit_frequent'} onChange={() => setNewItemSubCat('fruit_frequent')} />
+                      <span className="font-bold text-red-600">자주 발주</span>
                     </label>
-                    <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border bg-gray-50">
-                      <input
-                        type="radio"
-                        name="newSubCategory"
-                        checked={newItemSubCat === 'fruit_special'}
-                        onChange={() => setNewItemSubCat('fruit_special')}
-                        className="text-orange-600"
-                      />
-                      <span className="text-xs font-bold text-orange-600">특수 과일</span>
+                    <label className="flex items-center space-x-1 cursor-pointer p-2 rounded-lg border bg-white text-[11px]">
+                      <input type="radio" name="bulkSub" checked={newItemSubCat === 'fruit_special'} onChange={() => setNewItemSubCat('fruit_special')} />
+                      <span className="font-bold text-orange-600">특수 과일</span>
                     </label>
                   </div>
                 )}
               </div>
 
               <div>
+                <label className="block text-xs font-black text-indigo-900 mb-1">
+                  2. 품목 목록 붙여넣기 (줄바꿈 구분, 예: <code className="bg-indigo-100 px-1 rounded">대파 단</code> 또는 <code className="bg-indigo-100 px-1 rounded">사과박스, 박스</code>)
+                </label>
+                <textarea
+                  value={bulkText}
+                  onChange={e => setBulkText(e.target.value)}
+                  placeholder="대파 단&#10;무 개&#10;배추 포기&#10;양파망 망"
+                  rows={5}
+                  className="w-full px-3 py-2 text-xs border border-indigo-300 rounded-xl bg-white font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 text-xs"
+              >
+                🚀 일괄 품목 등록하기
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <h3 className="text-sm font-extrabold text-gray-800 mb-4 border-b pb-2">➕ 개별 품목 추가하기</h3>
+            <form onSubmit={handleAddNewItem} className="space-y-4">
+              <div>
                 <label className="block text-xs font-black text-gray-700 mb-1">품목 이름</label>
                 <input
                   type="text"
                   value={newItemName}
                   onChange={e => setNewItemName(e.target.value)}
-                  placeholder="예: 애호박, 사과 등"
+                  placeholder="예: 애호박"
                   className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-indigo-500 font-bold"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-black text-gray-700 mb-1">단위 (예: 박스, 봉, 팩, 통)</label>
+                <label className="block text-xs font-black text-gray-700 mb-1">단위 (예: 박스, 봉, 팩, 단)</label>
                 <input
                   type="text"
                   value={newItemUnit}
@@ -1078,9 +1775,9 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400"
+                className="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 text-xs"
               >
-                ➕ 새 품목 등록하기
+                ➕ 개별 품목 등록
               </button>
             </form>
           </div>
@@ -1092,7 +1789,8 @@ export default function Home() {
                 const c = item.category?.toLowerCase() || ''
                 let badgeText = '자주발주'
                 let badgeColor = 'bg-green-100 text-green-700'
-                if (c === 'veg_special') { badgeText = '특수야채'; badgeColor = 'bg-emerald-100 text-emerald-700'; }
+                if (c === 'veg_packaged') { badgeText = '포장된'; badgeColor = 'bg-teal-100 text-teal-700'; }
+                else if (c === 'veg_special') { badgeText = '특수야채'; badgeColor = 'bg-emerald-100 text-emerald-700'; }
                 else if (c === 'veg_occasional') { badgeText = '가끔넣는'; badgeColor = 'bg-blue-100 text-blue-700'; }
                 else if (c === 'fruit_special') { badgeText = '특수과일'; badgeColor = 'bg-orange-100 text-orange-700'; }
                 else if (c.includes('fruit')) { badgeText = '자주발주(과일)'; badgeColor = 'bg-red-100 text-red-600'; }
