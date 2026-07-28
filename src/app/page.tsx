@@ -60,6 +60,13 @@ interface EventRecord {
   created_at: string
 }
 
+interface SimulatorItem {
+  id: string
+  name: string
+  cost: number
+  price: number
+}
+
 export default function Home() {
   const [items, setItems] = useState<Item[]>([])
   const [orderInputs, setOrderInputs] = useState<OrderInput>({})
@@ -78,16 +85,25 @@ export default function Home() {
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
   const [editingOriginalTime, setEditingOriginalTime] = useState<string | null>(null)
 
-  // 시세 히스토리 및 통합 검색(검색+선택 합체) 상태
+  // 시세 히스토리 및 통합 검색 상태
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([])
   const [selectedChartItemId, setSelectedChartItemId] = useState<number | null>(null)
   const [chartItemSearchText, setChartItemSearchText] = useState('')
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
 
-  // 날씨 위젯 상태 (대구 칠곡 기준)
-  const [weather, setWeather] = useState<{ temp: number; humidity: number; desc: string; icon: string } | null>(null)
+  // 내일 날씨 위젯 상태 (대구 칠곡 기준)
+  const [tomorrowWeather, setTomorrowWeather] = useState<{ maxTemp: number; minTemp: number; desc: string; icon: string; rainProb: number } | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(true)
+
+  // 행사 마진 시뮬레이터 상태
+  const [simulatorItems, setSimulatorItems] = useState<SimulatorItem[]>([
+    { id: '1', name: '예시) 감자 1박스', cost: 12000, price: 14900 },
+    { id: '2', name: '예시) 사과 1봉', cost: 8000, price: 9900 },
+  ])
+  const [simName, setSimName] = useState('')
+  const [simCost, setSimCost] = useState('')
+  const [simPrice, setSimPrice] = useState('')
 
   const [newItemName, setNewItemName] = useState('')
   const [newItemTopCat, setNewItemTopCat] = useState<'VEG' | 'FRUIT'>('VEG')
@@ -122,33 +138,34 @@ export default function Home() {
       setOrdererName('농산팀')
     }
 
-    // 대구 칠곡 지역 날씨 가져오기 (Open-Meteo 무료 API)
-    async function fetchWeather() {
+    // 대구 칠곡 지역 '내일 날씨' 가져오기 (Open-Meteo 일일 예보 API)
+    async function fetchTomorrowWeather() {
       try {
-        const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.94&longitude=128.55&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FSeoul')
+        const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.94&longitude=128.55&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul')
         const data = await res.json()
-        const code = data.current.weather_code
+        
+        // index 1이 내일 날씨
+        const code = data.daily.weather_code[1] ?? 0
+        const maxTemp = data.daily.temperature_2m_max[1] ?? 0
+        const minTemp = data.daily.temperature_2m_min[1] ?? 0
+        const rainProb = data.daily.precipitation_probability_max[1] ?? 0
+
         let desc = '맑음'
         let icon = '☀️'
         if (code >= 1 && code <= 3) { desc = '구름 많음'; icon = '⛅'; }
-        else if (code >= 51 && code <= 67) { desc = '비'; icon = '🌧️'; }
-        else if (code >= 71 && code <= 77) { desc = '눈'; icon = '❄️'; }
+        else if (code >= 51 && code <= 67) { desc = '비 소식'; icon = '🌧️'; }
+        else if (code >= 71 && code <= 77) { desc = '눈 소식'; icon = '❄️'; }
         else if (code >= 95) { desc = '천둥번개'; icon = '⛈️'; }
         else if (code >= 45) { desc = '안개'; icon = '🌫️'; }
 
-        setWeather({
-          temp: data.current.temperature_2m,
-          humidity: data.current.relative_humidity_2m,
-          desc,
-          icon
-        })
+        setTomorrowWeather({ maxTemp, minTemp, desc, icon, rainProb })
       } catch (e) {
-        console.error('날씨 정보 로딩 실패:', e)
+        console.error('내일 날씨 정보 로딩 실패:', e)
       } finally {
         setWeatherLoading(false)
       }
     }
-    fetchWeather()
+    fetchTomorrowWeather()
   }, [])
 
   const handleNameChange = (name: string) => {
@@ -729,7 +746,7 @@ export default function Home() {
       if (cat.includes('fruit')) return false
       if (vegSubTab === 'VEG_FREQUENT') return cat === 'veg_frequent' || cat === 'veg' || cat === 'vegetable' || cat === ''
       if (vegSubTab === 'VEG_PACKAGED') return cat === 'veg_packaged'
-      if (vegSubTab === 'VEG_SPECIAL') return cat === 'veg_special'
+      if (vegSubTab === 'veg_special') return cat === 'veg_special'
       if (vegSubTab === 'VEG_OCCASIONAL') return cat === 'veg_occasional'
     } else {
       if (!cat.includes('fruit')) return false
@@ -901,14 +918,14 @@ export default function Home() {
         <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트 및 행사 관리를 할 수 있습니다.</p>
       </div>
 
-      {/* 🌤️ 대구 칠곡 지역 날씨 위젯 */}
+      {/* 🌤️ 대구 칠곡 지역 '내일 날씨' 위젯 */}
       <div className="bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-2xl p-3.5 mb-6 shadow-md flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <span className="text-2xl">📍</span>
           <div>
-            <span className="text-xs font-bold text-sky-100 block">대구 칠곡 지역 날씨 (농산물 수급 참고)</span>
+            <span className="text-xs font-bold text-sky-100 block">대구 칠곡 내일 날씨 예보 (농산물 수급 참고)</span>
             <span className="text-xs sm:text-sm font-extrabold">
-              {weatherLoading ? '날씨 정보를 불러오는 중...' : weather ? `현재 기온: ${weather.temp}°C (${weather.desc} ${weather.icon}) | 습도: ${weather.humidity}%` : '날씨 정보를 가져올 수 없습니다.'}
+              {weatherLoading ? '내일 날씨 정보를 불러오는 중...' : tomorrowWeather ? `최고 ${tomorrowWeather.maxTemp}°C / 최저 ${tomorrowWeather.minTemp}°C (${tomorrowWeather.desc} ${tomorrowWeather.icon}) | 강수확률: ${tomorrowWeather.rainProb}%` : '날씨 정보를 가져올 수 없습니다.'}
             </span>
           </div>
         </div>
@@ -974,6 +991,21 @@ export default function Home() {
 
       {mainTab === 'WRITE' && (
         <>
+          {/* 💡 [기능 2] 날씨·요일 연동 AI 수요 예측 및 발주 추천 카드 */}
+          <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-4 mb-4 shadow-sm border border-blue-500/30 space-y-1.5">
+            <div className="flex items-center space-x-2">
+              <span className="text-base">🤖</span>
+              <span className="text-xs font-black text-blue-200 uppercase tracking-wider">AI 날씨 & 요일 연동 맞춤 발주 추천</span>
+            </div>
+            <p className="text-xs text-blue-100 leading-relaxed font-medium">
+              {tomorrowWeather && tomorrowWeather.rainProb >= 40 
+                ? `🌧️ 내일 비 소식(강수확률 ${tomorrowWeather.rainProb}%)이 있습니다! 국거리용 채소(무, 대파, 버섯류) 및 부침개 재료의 수요 증가가 예상되니 물량을 여유 있게 검토하세요.`
+                : tomorrowWeather && tomorrowWeather.maxTemp >= 30
+                ? `🔥 내일 무더운 날씨(최고 ${tomorrowWeather.maxTemp}°C)가 예보됩니다! 수박, 참외 등 시원한 과일류와 쌈채소류의 회전율이 빨라질 수 있습니다.`
+                : `🌤️ 내일 날씨와 요일 흐름을 반영할 때, 주력 자주 발주 품목 위주로 안정적인 재고를 유지하는 것을 추천합니다.`}
+            </p>
+          </div>
+
           {editingOriginalTime && (
             <div className="bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl mb-4 flex items-center justify-between shadow-sm">
               <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (저장 시 기존 항목이 수정/대체됩니다)</span>
@@ -1607,7 +1639,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📈 [📈 시세차트] 탭 (직전 대비 등락률 표시 추가) */}
+      {/* 📈 [📈 시세차트] 탭 */}
       {mainTab === 'CHART' && (
         <div className="space-y-6">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -1619,7 +1651,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 시세 입력 폼 */}
           <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-sm font-extrabold text-emerald-900 border-b border-emerald-200 pb-2">
               ➕ 당일 도매 시세 기록하기
@@ -1679,7 +1710,6 @@ export default function Home() {
             </form>
           </div>
 
-          {/* 시세 시각화 (점선 그래프) 및 리스트 영역 */}
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-6">
             <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-4">
               <div>
@@ -1717,7 +1747,6 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* 📈 점선 그래프 영역 */}
                 <div className="bg-gray-50 p-4 rounded-2xl border space-y-3">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-bold text-gray-600">📈 시세 추이 점선 그래프</span>
@@ -1779,7 +1808,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 내역 목록 테이블 (직전 대비 증감률 % 자동 계산 표시) */}
                 <div className="border rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-100 text-gray-700 font-bold border-b">
@@ -1828,7 +1856,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* AI 시세 트렌드 분석 리포트 카드 */}
           <div className="bg-gradient-to-br from-emerald-900 to-slate-900 text-white rounded-2xl p-6 shadow-md space-y-4 border border-emerald-500/30">
             <div className="flex flex-wrap justify-between items-center gap-2 border-b border-emerald-700/60 pb-3">
               <div className="flex items-center space-x-2">
@@ -1850,9 +1877,9 @@ export default function Home() {
                 <div className="text-center py-6 text-emerald-300 font-bold animate-pulse">
                   🔮 누적된 도매 시세 히스토리를 분석하여 가격 변동 트렌드를 예측하고 있습니다...
                 </div>
-              ) : aiChartInsightText ? (
+              ) : aiChartInsightTest ? (
                 <div className="whitespace-pre-line font-medium">
-                  {aiChartInsightText}
+                  {aiChartInsightTest}
                 </div>
               ) : (
                 <div className="text-center py-4 text-slate-400">
@@ -1864,11 +1891,134 @@ export default function Home() {
         </div>
       )}
 
+      {/* 💰 [🎉 행사관리] 탭 (행사 마진율 & 손익 시뮬레이터 추가) */}
       {mainTab === 'EVENT' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
             <span>🎉 농산팀 행사 계획 및 공유 (품목/가격 칸 분리형)</span>
           </h2>
+
+          {/* 💡 [기능 4] 행사 마진율 & 손익 시뮬레이터 */}
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b border-amber-200 pb-2">
+              <h3 className="text-sm font-black text-amber-950 flex items-center space-x-1.5">
+                <span>💰 행사 마진율 & 손익 자동 시뮬레이터</span>
+              </h3>
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded">
+                실시간 마진 계산
+              </span>
+            </div>
+            <p className="text-xs text-amber-900/80">
+              특가 행사 기획 시, 예상 도매원가와 판매가를 입력해 마진율과 손익 상태(안전/주의/역마진)를 미리 시뮬레이션 해보세요.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+              <div>
+                <label className="block text-[11px] font-bold text-amber-900 mb-1">품목명</label>
+                <input
+                  type="text"
+                  placeholder="예: 수박 1통"
+                  value={simName}
+                  onChange={e => setSimName(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-amber-900 mb-1">예상 도매원가 (원)</label>
+                <input
+                  type="number"
+                  placeholder="15000"
+                  value={simCost}
+                  onChange={e => setSimCost(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium text-right"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-amber-900 mb-1">행사 판매가 (원)</label>
+                <input
+                  type="number"
+                  placeholder="18900"
+                  value={simPrice}
+                  onChange={e => setSimPrice(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium text-right"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!simName.trim() || !simCost || !simPrice) {
+                    alert('모든 항목을 올바르게 입력해주세요!')
+                    return
+                  }
+                  const newItem: SimulatorItem = {
+                    id: Date.now().toString(),
+                    name: simName.trim(),
+                    cost: Number(simCost),
+                    price: Number(simPrice)
+                  }
+                  setSimulatorItems([...simulatorItems, newItem])
+                  setSimName('')
+                  setSimCost('')
+                  setSimPrice('')
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-xl text-xs shadow-sm transition-all"
+              >
+                ➕ 시뮬레이션 추가
+              </button>
+            </div>
+
+            {/* 시뮬레이션 결과 리스트 */}
+            {simulatorItems.length > 0 && (
+              <div className="bg-white rounded-xl border border-amber-200 overflow-hidden mt-3">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-amber-100/70 text-amber-950 font-bold border-b border-amber-200">
+                    <tr>
+                      <th className="p-2.5">품목명</th>
+                      <th className="p-2.5 text-right">도매원가</th>
+                      <th className="p-2.5 text-right">판매가</th>
+                      <th className="p-2.5 text-right">마진액 (마진율)</th>
+                      <th className="p-2.5 text-center">손익 상태</th>
+                      <th className="p-2.5 text-center w-16">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100">
+                    {simulatorItems.map(item => {
+                      const profit = item.price - item.cost
+                      const marginRate = item.price > 0 ? ((profit / item.price) * 100).toFixed(1) : '0'
+                      const isSafe = Number(marginRate) >= 20
+                      const isWarning = Number(marginRate) >= 10 && Number(marginRate) < 20
+                      const isDanger = Number(marginRate) < 10
+
+                      return (
+                        <tr key={item.id} className="hover:bg-amber-50/50">
+                          <td className="p-2.5 font-bold text-gray-800">{item.name}</td>
+                          <td className="p-2.5 text-right text-gray-600">{item.cost.toLocaleString()}원</td>
+                          <td className="p-2.5 text-right font-semibold text-gray-800">{item.price.toLocaleString()}원</td>
+                          <td className="p-2.5 text-right font-extrabold text-amber-800">
+                            {profit.toLocaleString()}원 ({marginRate}%)
+                          </td>
+                          <td className="p-2.5 text-center font-bold">
+                            {isSafe && <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[11px]">🟢 안전마진</span>}
+                            {isWarning && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[11px]">🟡 보통</span>}
+                            {isDanger && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[11px]">🔴 주의/저마진</span>}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSimulatorItems(simulatorItems.filter(i => i.id !== item.id))}
+                              className="text-red-500 hover:text-red-700 font-bold text-xs"
+                            >
+                              삭제
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">➕ 새로운 행사 등록하기</h3>
