@@ -767,6 +767,33 @@ export default function Home() {
     return isFruit
   })
 
+  // 🤖 AI 추천 문구에 실시간 재고 부족 품목 연동 로직
+  const shortageItems = items.filter(item => {
+    const totalOrdered = orderHistory
+      .filter(o => o.item_id === item.id || o.item_name === item.name)
+      .reduce((sum, o) => sum + o.quantity, 0)
+    const physical = physicalStocks[item.id] ?? ''
+    if (physical === '') return false
+    return Number(physical) - totalOrdered < 0
+  })
+
+  const aiRecommendationMessage = (() => {
+    let base = ''
+    if (tomorrowWeather && tomorrowWeather.rainProb >= 40) {
+      base = `🌧️ 내일 비 소식(강수확률 ${tomorrowWeather.rainProb}%)이 있습니다! 국거리용 채소 및 부침개 재료 수요를 검토하세요.`
+    } else if (tomorrowWeather && tomorrowWeather.maxTemp >= 30) {
+      base = `🔥 내일 무더운 날씨(최고 ${tomorrowWeather.maxTemp}°C)가 예보됩니다! 시원한 과일류 및 쌈채소 회전율을 확인하세요.`
+    } else {
+      base = `🌤️ 날씨와 요일 흐름을 반영할 때, 주력 자주 발주 품목 위주로 안정적인 재고를 유지하는 것을 추천합니다.`
+    }
+
+    if (shortageItems.length > 0) {
+      const names = shortageItems.map(i => i.name).slice(0, 3).join(', ')
+      base += ` ⚠️ [재고 연동 경고] 현재 실물 재고가 부족한 품목(${names}${shortageItems.length > 3 ? ' 외' : ''})이 감지되었습니다! 추가 발주를 우선적으로 검토하세요.`
+    }
+    return base
+  })()
+
   const renderItemCard = (item: Item) => {
     const isChecked = orderInputs[item.id]?.checked || false
     const quantity = orderInputs[item.id]?.quantity || 1
@@ -1008,17 +1035,13 @@ export default function Home() {
 
       {mainTab === 'WRITE' && (
         <>
-          <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-4 mb-4 shadow-sm border border-blue-500/30 space-y-1.5">
+          <div className="bg-gradient-to-r from-blue-950 to-indigo-950 text-white rounded-2xl p-4 mb-4 shadow-sm border border-blue-500/30 space-y-1.5">
             <div className="flex items-center space-x-2">
               <span className="text-base">🤖</span>
-              <span className="text-xs font-black text-blue-200 uppercase tracking-wider">AI 날씨 & 요일 연동 맞춤 발주 추천</span>
+              <span className="text-xs font-black text-blue-200 uppercase tracking-wider">AI 날씨 & 실시간 재고 연동 맞춤 발주 추천</span>
             </div>
             <p className="text-xs text-blue-100 leading-relaxed font-medium">
-              {tomorrowWeather && tomorrowWeather.rainProb >= 40 
-                ? `🌧️ 내일 비 소식(강수확률 ${tomorrowWeather.rainProb}%)이 있습니다! 국거리용 채소(무, 대파, 버섯류) 및 부침개 재료의 수요 증가가 예상되니 물량을 여유 있게 검토하세요.`
-                : tomorrowWeather && tomorrowWeather.maxTemp >= 30
-                ? `🔥 내일 무더운 날씨(최고 ${tomorrowWeather.maxTemp}°C)가 예보됩니다! 수박, 참외 등 시원한 과일류와 쌈채소류의 회전율이 빨라질 수 있습니다.`
-                : `🌤️ 내일 날씨와 요일 흐름을 반영할 때, 주력 자주 발주 품목 위주로 안정적인 재고를 유지하는 것을 추천합니다.`}
+              {aiRecommendationMessage}
             </p>
           </div>
 
