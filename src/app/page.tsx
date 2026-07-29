@@ -14,6 +14,7 @@ interface OrderInput {
   [itemId: number]: {
     checked: boolean
     quantity: number
+    isEvent?: boolean // 행사 여부 필드 추가
   }
 }
 
@@ -80,7 +81,7 @@ export default function Home() {
   const [fruitSubTab, setFruitSubTab] = useState<'FRUIT_FREQUENT' | 'FRUIT_SPECIAL'>('FRUIT_FREQUENT')
 
   const [boardSubTab, setBoardSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
-  const [stockSubTab, setStockSubTab] = useState<'VEG' | 'FRUIT'>('VEG') // 재고파악 채소/과일 분리 탭
+  const [stockSubTab, setStockSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
   const [searchQuery, setSearchQuery] = useState('')
   const [ordererName, setOrdererName] = useState('농산팀')
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
@@ -335,7 +336,7 @@ export default function Home() {
       if (hasConflict) {
         alert('⚠️ 채소와 과일은 동시에 담을 수 없습니다!\n기존 선택이 초기화되고 새로 선택한 품목으로 전환됩니다.')
         setOrderInputs({
-          [itemId]: { checked: true, quantity: 1 },
+          [itemId]: { checked: true, quantity: 1, isEvent: false },
         })
         return
       }
@@ -346,6 +347,7 @@ export default function Home() {
       [itemId]: {
         checked,
         quantity: prev[itemId]?.quantity || 1,
+        isEvent: prev[itemId]?.isEvent || false,
       },
     }))
   }
@@ -356,6 +358,18 @@ export default function Home() {
       [itemId]: {
         checked: prev[itemId]?.checked || false,
         quantity: isNaN(quantity) ? 1 : Math.max(1, quantity),
+        isEvent: prev[itemId]?.isEvent || false,
+      },
+    }))
+  }
+
+  const handleEventToggle = (itemId: number, isEvent: boolean) => {
+    setOrderInputs(prev => ({
+      ...prev,
+      [itemId]: {
+        checked: prev[itemId]?.checked || false,
+        quantity: prev[itemId]?.quantity || 1,
+        isEvent,
       },
     }))
   }
@@ -384,10 +398,11 @@ export default function Home() {
     const ordersData = selectedItems.map(([itemIdStr, value]) => {
       const itemId = Number(itemIdStr)
       const item = items.find(i => i.id === itemId)
+      const finalItemName = (item?.name || '') + (value.isEvent ? ' (행사)' : '')
 
       return {
         item_id: itemId,
-        item_name: item?.name || '',
+        item_name: finalItemName,
         category: item?.category || '',
         vendor: '미지정',
         quantity: value.quantity,
@@ -621,15 +636,18 @@ export default function Home() {
     const newInputs: OrderInput = {}
     
     itemsList.forEach(order => {
+      const isEvent = order.item_name.includes('(행사)')
+      const cleanName = order.item_name.replace(' (행사)', '').trim()
       let matchedItem = items.find(i => i.id === order.item_id)
       if (!matchedItem) {
-        matchedItem = items.find(i => i.name === order.item_name)
+        matchedItem = items.find(i => i.name === cleanName)
       }
 
       if (matchedItem) {
         newInputs[matchedItem.id] = {
           checked: true,
           quantity: order.quantity,
+          isEvent,
         }
       }
     })
@@ -690,7 +708,8 @@ export default function Home() {
   }
 
   const getItemUnit = (itemId: number, itemName?: string) => {
-    const foundItem = items.find(i => i.id === itemId) || items.find(i => i.name === itemName)
+    const cleanName = itemName ? itemName.replace(' (행사)', '').trim() : ''
+    const foundItem = items.find(i => i.id === itemId) || items.find(i => i.name === cleanName)
     return foundItem ? foundItem.unit : ''
   }
 
@@ -770,7 +789,7 @@ export default function Home() {
   // 🤖 AI 추천 문구에 실시간 재고 부족 품목 연동 로직
   const shortageItems = items.filter(item => {
     const totalOrdered = orderHistory
-      .filter(o => o.item_id === item.id || o.item_name === item.name)
+      .filter(o => o.item_id === item.id || o.item_name.includes(item.name))
       .reduce((sum, o) => sum + o.quantity, 0)
     const physical = physicalStocks[item.id] ?? ''
     if (physical === '') return false
@@ -797,6 +816,7 @@ export default function Home() {
   const renderItemCard = (item: Item) => {
     const isChecked = orderInputs[item.id]?.checked || false
     const quantity = orderInputs[item.id]?.quantity || 1
+    const isEventChecked = orderInputs[item.id]?.isEvent || false
 
     return (
       <div
@@ -820,16 +840,28 @@ export default function Home() {
         </div>
 
         {isChecked && (
-          <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-between">
-            <span className="text-xs text-gray-500 font-medium">{item.unit}</span>
-            <input
-              type="number"
-              min="1"
-              value={quantity}
-              onFocus={(e) => e.target.select()}
-              onChange={e => handleQuantityChange(item.id, Number(e.target.value))}
-              className="w-16 px-2 py-1 text-right text-sm border rounded bg-white font-semibold"
-            />
+          <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-between gap-2">
+            <label className="flex items-center space-x-1 cursor-pointer text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 hover:bg-amber-100">
+              <input
+                type="checkbox"
+                checked={isEventChecked}
+                onChange={e => handleEventToggle(item.id, e.target.checked)}
+                className="w-3.5 h-3.5 text-amber-600 rounded border-gray-300"
+              />
+              <span>🎪 행사</span>
+            </label>
+
+            <div className="flex items-center space-x-1">
+              <span className="text-xs text-gray-500 font-medium">{item.unit}</span>
+              <input
+                type="number"
+                min="1"
+                value={quantity}
+                onFocus={(e) => e.target.select()}
+                onChange={e => handleQuantityChange(item.id, Number(e.target.value))}
+                className="w-16 px-2 py-1 text-right text-sm border rounded bg-white font-semibold"
+              />
+            </div>
           </div>
         )}
       </div>
@@ -1602,7 +1634,7 @@ export default function Home() {
                   <tbody className="divide-y">
                     {filteredStockItems.map(item => {
                       const totalOrdered = orderHistory
-                        .filter(o => o.item_id === item.id || o.item_name === item.name)
+                        .filter(o => o.item_id === item.id || o.item_name.includes(item.name))
                         .reduce((sum, o) => sum + o.quantity, 0)
 
                       const physical = physicalStocks[item.id] ?? ''
