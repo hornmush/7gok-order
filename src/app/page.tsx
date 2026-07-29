@@ -14,7 +14,6 @@ interface OrderInput {
   [itemId: number]: {
     checked: boolean
     quantity: number
-    isEvent?: boolean
   }
 }
 
@@ -74,7 +73,7 @@ export default function Home() {
   const [orderInputs, setOrderInputs] = useState<OrderInput>({})
   const [loading, setLoading] = useState(false)
   
-  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK'>('WRITE')
+  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK' | 'FUTURE'>('WRITE')
   
   // 2계층 탭 구조 상태
   const [topTab, setTopTab] = useState<'VEG' | 'FRUIT'>('VEG')
@@ -228,12 +227,12 @@ export default function Home() {
     else if (data) setEvents(data)
   }
 
-  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK') => {
+  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK' | 'FUTURE') => {
     setMainTab(tab)
     fetchItems()
     fetchOrderHistory()
     if (tab === 'CHART') fetchPriceHistory()
-    if (tab === 'EVENT') fetchEvents()
+    if (tab === 'EVENT' || tab === 'BOARD') fetchEvents()
   }
 
   useEffect(() => {
@@ -321,7 +320,7 @@ export default function Home() {
       if (hasConflict) {
         alert('⚠️ 채소와 과일은 동시에 담을 수 없습니다!\n기존 선택이 초기화되고 새로 선택한 품목으로 전환됩니다.')
         setOrderInputs({
-          [itemId]: { checked: true, quantity: 1, isEvent: false },
+          [itemId]: { checked: true, quantity: 1 },
         })
         return
       }
@@ -332,7 +331,6 @@ export default function Home() {
       [itemId]: {
         checked,
         quantity: prev[itemId]?.quantity || 1,
-        isEvent: prev[itemId]?.isEvent || false,
       },
     }))
   }
@@ -343,18 +341,6 @@ export default function Home() {
       [itemId]: {
         checked: prev[itemId]?.checked || false,
         quantity: isNaN(quantity) ? 1 : Math.max(1, quantity),
-        isEvent: prev[itemId]?.isEvent || false,
-      },
-    }))
-  }
-
-  const handleEventToggle = (itemId: number, isEvent: boolean) => {
-    setOrderInputs(prev => ({
-      ...prev,
-      [itemId]: {
-        checked: prev[itemId]?.checked || false,
-        quantity: prev[itemId]?.quantity || 1,
-        isEvent,
       },
     }))
   }
@@ -382,11 +368,10 @@ export default function Home() {
     const ordersData = selectedItems.map(([itemIdStr, value]) => {
       const itemId = Number(itemIdStr)
       const item = items.find(i => i.id === itemId)
-      const finalItemName = (item?.name || '') + (value.isEvent ? ' (행사)' : '')
 
       return {
         item_id: itemId,
-        item_name: finalItemName,
+        item_name: item?.name || '',
         category: item?.category || '',
         vendor: '미지정',
         quantity: value.quantity,
@@ -685,8 +670,7 @@ export default function Home() {
     const newInputs: OrderInput = {}
     
     itemsList.forEach(order => {
-      const isEvent = order.item_name.includes('(행사)')
-      const cleanName = order.item_name.replace(' (행사)', '').trim()
+      const cleanName = order.item_name.trim()
       let matchedItem = items.find(i => i.id === order.item_id)
       if (!matchedItem) {
         matchedItem = items.find(i => i.name === cleanName)
@@ -696,7 +680,6 @@ export default function Home() {
         newInputs[matchedItem.id] = {
           checked: true,
           quantity: order.quantity,
-          isEvent,
         }
       }
     })
@@ -751,7 +734,7 @@ export default function Home() {
   }
 
   const getItemUnit = (itemId: number, itemName?: string) => {
-    const cleanName = itemName ? itemName.replace(' (행사)', '').trim() : ''
+    const cleanName = itemName ? itemName.trim() : ''
     const foundItem = items.find(i => i.id === itemId) || items.find(i => i.name === cleanName)
     return foundItem ? foundItem.unit : ''
   }
@@ -762,7 +745,6 @@ export default function Home() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   }
 
-  // 가격 자동 포맷팅 및 '원' 자동 추가 헬퍼 함수 (숫자형태 데이터도 안전하게 처리)
   const formatDisplayPrice = (val: any) => {
     if (val === null || val === undefined || String(val).trim() === '') return '-'
     const strVal = String(val)
@@ -771,6 +753,19 @@ export default function Home() {
     const formattedNum = Number(numbersOnly).toLocaleString()
     return `${formattedNum}원`
   }
+
+  // 현재 활성화된 행사들의 등록 품목명들을 집계하는 세트 생성
+  const activeEvents = events.filter(ev => !ev.event_data?.is_ended)
+  const activeEventItemNames = new Set<string>()
+  activeEvents.forEach(ev => {
+    const d = ev.event_data
+    d.wholeVeg?.forEach(i => { if (i.name) activeEventItemNames.add(i.name.trim()) })
+    d.wholeFruit?.forEach(i => { if (i.name) activeEventItemNames.add(i.name.trim()) })
+    d.periods?.forEach(p => {
+      p.fruit?.forEach(f => { if (f.name) activeEventItemNames.add(f.name.trim()) })
+      p.veg?.forEach(v => { if (v.name) activeEventItemNames.add(v.name.trim()) })
+    })
+  })
 
   const filteredOrderHistory = orderHistory.filter(order => {
     const cat = order.category?.toLowerCase() || ''
@@ -867,7 +862,6 @@ export default function Home() {
   const renderItemCard = (item: Item) => {
     const isChecked = orderInputs[item.id]?.checked || false
     const quantity = orderInputs[item.id]?.quantity || 1
-    const isEventChecked = orderInputs[item.id]?.isEvent || false
 
     return (
       <div
@@ -891,17 +885,7 @@ export default function Home() {
         </div>
 
         {isChecked && (
-          <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-between gap-2">
-            <label className="flex items-center space-x-1 cursor-pointer text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 hover:bg-amber-100">
-              <input
-                type="checkbox"
-                checked={isEventChecked}
-                onChange={e => handleEventToggle(item.id, e.target.checked)}
-                className="w-3.5 h-3.5 text-amber-600 rounded border-gray-300"
-              />
-              <span>🎪 행사</span>
-            </label>
-
+          <div className="mt-3 pt-2 border-t border-gray-200/80 flex items-center justify-end gap-2">
             <div className="flex items-center space-x-1">
               <span className="text-xs text-gray-500 font-medium">{item.unit}</span>
               <input
@@ -1029,11 +1013,9 @@ export default function Home() {
   const currentItemSelected = items.find(i => i.id === selectedChartItemId)
   const filteredPricesForChart = priceHistory.filter(p => p.item_id === selectedChartItemId)
 
-  // 행사 카드 상세 가독성 대폭 향상 (폰트 크기 및 '원' 자동 적용)
   const renderEventCardDetails = (data: EventRecord['event_data']) => (
     <div className="space-y-5 mt-4 pt-4 border-t border-amber-200">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* 전기간 야채 */}
         <div className="bg-gradient-to-br from-green-50/90 to-emerald-50/50 p-4 rounded-2xl border border-green-300 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-green-200 pb-2">
             <span className="text-xs font-black text-green-900 flex items-center space-x-1">
@@ -1055,7 +1037,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 전기간 과일 */}
         <div className="bg-gradient-to-br from-red-50/90 to-rose-50/50 p-4 rounded-2xl border border-red-300 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-red-200 pb-2">
             <span className="text-xs font-black text-red-900 flex items-center space-x-1">
@@ -1078,7 +1059,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 세부 기간별 상품 */}
       <div className="space-y-3 pt-2">
         <h4 className="text-xs font-black text-gray-800 flex items-center space-x-1">
           <span>📌 세부 기간별 행사 품목 리스트</span>
@@ -1138,7 +1118,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
         <button
           type="button"
           onClick={() => handleTabChange('WRITE')}
@@ -1202,7 +1182,24 @@ export default function Home() {
         >
           ⚙️ 품목관리
         </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('FUTURE')}
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+            mainTab === 'FUTURE' ? 'bg-teal-600 text-white shadow-teal-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          🚀 추가예정
+        </button>
       </div>
+
+      {mainTab === 'FUTURE' && (
+        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+          <span className="text-3xl">🚀</span>
+          <h2 className="text-lg font-black text-gray-800">추가 예정 기능 공간</h2>
+          <p className="text-xs text-gray-500">추후 현업에 필요한 새로운 기능이나 위젯이 업데이트될 예정입니다.</p>
+        </div>
+      )}
 
       {mainTab === 'WRITE' && (
         <>
@@ -1599,10 +1596,20 @@ export default function Home() {
                         const isFruitTab = boardSubTab === 'FRUIT'
                         const isPotatoOrSweetPotato = order.item_name.includes('감자') || order.item_name.includes('고구마')
 
+                        // 행사 관리 품목과 이름 매칭 확인 (가시오이 -> 가시오이박스, 블루베리 -> 수입블루베리 등 부분 일치)
+                        const isMatchedEventItem = Array.from(activeEventItemNames).some(evName =>
+                          order.item_name.includes(evName)
+                        )
+
                         return (
                           <div key={order.id} className="flex flex-col md:flex-row justify-between items-start md:items-center text-sm py-2.5 px-3 rounded-xl bg-white border border-gray-200/80 gap-3">
                             <div className="flex items-center space-x-2">
                               <span className="font-medium text-gray-800">· {order.item_name}</span>
+                              {isMatchedEventItem && (
+                                <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 shadow-2xs">
+                                  🎪 행사 품목
+                                </span>
+                              )}
                               <div className="flex items-center space-x-1">
                                 <input
                                   type="number"
