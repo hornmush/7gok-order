@@ -72,7 +72,7 @@ export default function Home() {
   const [orderInputs, setOrderInputs] = useState<OrderInput>({})
   const [loading, setLoading] = useState(false)
   
-  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT'>('WRITE')
+  const [mainTab, setMainTab] = useState<'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK'>('WRITE')
   
   // 2계층 탭 구조 상태
   const [topTab, setTopTab] = useState<'VEG' | 'FRUIT'>('VEG')
@@ -91,6 +91,9 @@ export default function Home() {
   const [chartItemSearchText, setChartItemSearchText] = useState('')
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
+
+  // 재고 파악 실물 재고 입력 상태 (itemId 기준)
+  const [physicalStocks, setPhysicalStocks] = useState<Record<number, number>>({})
 
   // 내일 날씨 위젯 상태 (대구 칠곡 기준)
   const [tomorrowWeather, setTomorrowWeather] = useState<{ maxTemp: number; minTemp: number; desc: string; icon: string; rainProb: number } | null>(null)
@@ -218,7 +221,7 @@ export default function Home() {
     else if (data) setEvents(data)
   }
 
-  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT') => {
+  const handleTabChange = (tab: 'WRITE' | 'BOARD' | 'STATS' | 'CHART' | 'MANAGE' | 'EVENT' | 'STOCK') => {
     setMainTab(tab)
     fetchItems()
     fetchOrderHistory()
@@ -911,7 +914,7 @@ export default function Home() {
     <main className="max-w-4xl mx-auto p-4 pb-28">
       <div className="text-center my-6">
         <h1 className="text-2xl font-extrabold text-gray-900">🛒 칠곡농협 농산팀 실시간 발주 시스템</h1>
-        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트 및 행사 관리를 할 수 있습니다.</p>
+        <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트, 행사 관리 및 재고 파악을 할 수 있습니다.</p>
       </div>
 
       {/* 🌤️ 대구 칠곡 지역 '내일 날씨' 위젯 */}
@@ -928,7 +931,7 @@ export default function Home() {
       </div>
 
       {/* 상단 메인 탭 네비게이션 */}
-      <div className="grid grid-cols-3 gap-2 mb-6">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-6">
         <button
           type="button"
           onClick={() => handleTabChange('WRITE')}
@@ -946,6 +949,15 @@ export default function Home() {
           }`}
         >
           📋 발주 확인
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('STOCK')}
+          className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm ${
+            mainTab === 'STOCK' ? 'bg-purple-600 text-white shadow-purple-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          📦 재고파악
         </button>
         <button
           type="button"
@@ -1491,6 +1503,100 @@ export default function Home() {
               )
             })
           )}
+        </div>
+      )}
+
+      {/* 📦 재고파악 탭 영역 */}
+      {mainTab === 'STOCK' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center mb-2">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800 flex items-center">
+                <span>📦 품목별 발주 현황 및 실물 재고 비교</span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">지금까지 발주된 총 수량을 확인하고 실물 재고를 입력해 차이를 파악하세요.</p>
+            </div>
+          </div>
+
+          <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-purple-900 border-b border-purple-200 pb-2">
+              💡 실물 재고 비교 가이드
+            </h3>
+            <p className="text-xs text-purple-900 leading-relaxed">
+              등록된 모든 품목별로 <strong>누적 발주 수량</strong>이 자동 계산되어 표시됩니다. 실물 재고 입력란에 현재 창고에 있는 실제 수량을 적어 넣으시면 발주량과의 차이(부족/일치)를 간편하게 대조하실 수 있습니다.
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">📋 품목별 재고 대조 리스트</h3>
+            
+            {items.length === 0 ? (
+              <p className="text-xs text-gray-400 py-8 text-center">등록된 품목이 없습니다.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-100 text-gray-700 font-bold border-b">
+                    <tr>
+                      <th className="p-3">품목명</th>
+                      <th className="p-3">단위</th>
+                      <th className="p-3 text-right">총 누적 발주량</th>
+                      <th className="p-3 text-center w-32">실물 재고 입력</th>
+                      <th className="p-3 text-right">재고 상태 / 차이</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {items.map(item => {
+                      // orderHistory에서 해당 item의 총 발주량 계산 (전체 또는 완료 건 기준 선택 가능, 여기서는 전체 발주 누적 합산)
+                      const totalOrdered = orderHistory
+                        .filter(o => o.item_id === item.id || o.item_name === item.name)
+                        .reduce((sum, o) => sum + o.quantity, 0)
+
+                      const physical = physicalStocks[item.id] ?? ''
+                      const diff = physical !== '' ? Number(physical) - totalOrdered : null
+
+                      return (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="p-3 font-bold text-gray-800">{item.name}</td>
+                          <td className="p-3 text-gray-500">{item.unit}</td>
+                          <td className="p-3 text-right font-extrabold text-blue-600">
+                            {totalOrdered > 0 ? `${totalOrdered} ${item.unit}` : '0'}
+                          </td>
+                          <td className="p-3 text-center">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="실물수량"
+                              value={physical}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setPhysicalStocks(prev => ({
+                                  ...prev,
+                                  [item.id]: val === '' ? 0 : Number(val)
+                                }))
+                              }}
+                              className="w-24 px-2 py-1.5 text-right font-bold border rounded-lg bg-white text-purple-700 focus:outline-none focus:border-purple-500"
+                            />
+                          </td>
+                          <td className="p-3 text-right font-bold">
+                            {diff === null ? (
+                              <span className="text-gray-400">미입력</span>
+                            ) : diff < 0 ? (
+                              <span className="text-red-600 font-extrabold">발주량 대비 {Math.abs(diff)} {item.unit} 부족</span>
+                            ) : diff > 0 ? (
+                              <span className="text-emerald-700 font-extrabold">재고 여유 (+{diff})</span>
+                            ) : (
+                              <span className="text-blue-600">발주량과 일치 (0)</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
