@@ -762,13 +762,14 @@ export default function Home() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   }
 
-  // 가격 자동 포맷팅 및 '원' 자동 추가 헬퍼 함수
-  const formatDisplayPrice = (val: string) => {
-    if (!val || val.trim() === '') return '-'
-    const numbersOnly = val.replace(/[^0-9]/g, '')
-    if (!numbersOnly) return val // 사용자가 문자열 위주로 적었을 경우 그대로 표시
+  // 가격 자동 포맷팅 및 '원' 자동 추가 헬퍼 함수 (숫자형태 데이터도 안전하게 처리)
+  const formatDisplayPrice = (val: any) => {
+    if (val === null || val === undefined || String(val).trim() === '') return '-'
+    const strVal = String(val)
+    const numbersOnly = strVal.replace(/[^0-9]/g, '')
+    if (!numbersOnly) return strVal
     const formattedNum = Number(numbersOnly).toLocaleString()
-    return val.includes('원') ? `${formattedNum}원` : `${formattedNum}원`
+    return `${formattedNum}원`
   }
 
   const filteredOrderHistory = orderHistory.filter(order => {
