@@ -57,7 +57,7 @@ interface EventRecord {
     wholeVeg: ItemPricePair[]
     wholeFruit: ItemPricePair[]
     periods: PeriodData[]
-    is_ended?: boolean // 행사 종료 여부
+    is_ended?: boolean
   }
   created_at: string
 }
@@ -138,6 +138,9 @@ export default function Home() {
     { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
   ])
 
+  // 지나간 행사 펼쳐보기 상태 관리 (ID별 토글)
+  const [expandedEndedIds, setExpandedEndedIds] = useState<Record<number, boolean>>({})
+
   useEffect(() => {
     const savedName = localStorage.getItem('ordererName')
     if (savedName) {
@@ -146,7 +149,6 @@ export default function Home() {
       setOrdererName('농산팀')
     }
 
-    // 대구 칠곡 지역 '내일 날씨' 가져오기 (Open-Meteo 일일 예보 API)
     async function fetchTomorrowWeather() {
       try {
         const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.94&longitude=128.55&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul')
@@ -242,26 +244,10 @@ export default function Home() {
 
     const channel = supabase
       .channel('realtime-orders-items-events-prices')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
-        () => { fetchOrderHistory() }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'items' },
-        () => { fetchItems() }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'price_history' },
-        () => { fetchPriceHistory() }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'events' },
-        () => { fetchEvents() }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrderHistory() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => { fetchItems() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'price_history' }, () => { fetchPriceHistory() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => { fetchEvents() })
       .subscribe()
 
     return () => {
@@ -308,11 +294,7 @@ export default function Home() {
   const handleDeletePriceRecord = async (recordId: number) => {
     if (!confirm('정말 이 시세 기록을 삭제하시겠습니까?')) return
 
-    const { error } = await supabase
-      .from('price_history')
-      .delete()
-      .eq('id', recordId)
-
+    const { error } = await supabase.from('price_history').delete().eq('id', recordId)
     if (error) {
       console.error('시세 삭제 에러:', error)
       alert('시세 기록 삭제 중 오류가 발생했습니다.')
@@ -378,9 +360,7 @@ export default function Home() {
   }
 
   const handleSubmitOrder = async () => {
-    const selectedItems = Object.entries(orderInputs).filter(
-      ([_, value]) => value.checked && value.quantity > 0
-    )
+    const selectedItems = Object.entries(orderInputs).filter(([_, value]) => value.checked && value.quantity > 0)
 
     if (selectedItems.length === 0) {
       alert('발주할 품목을 선택하고 수량을 입력해주세요.')
@@ -394,7 +374,6 @@ export default function Home() {
 
     setLoading(true)
 
-    // 기존 발주 수정 시 원래의 created_at 시간을 유지하여 링크/위치 변경 방지
     const targetCreatedAt = editingOriginalTime || new Date().toISOString()
     if (editingOriginalTime) {
       await supabase.from('orders').delete().eq('created_at', editingOriginalTime)
@@ -676,10 +655,7 @@ export default function Home() {
   }
 
   const handleAssignVendor = async (orderId: number, vendorName: string) => {
-    const { error } = await supabase
-      .from('orders')
-      .update({ vendor: vendorName })
-      .eq('id', orderId)
+    const { error } = await supabase.from('orders').update({ vendor: vendorName }).eq('id', orderId)
 
     if (error) {
       console.error('업체 지정 에러:', error)
@@ -691,10 +667,7 @@ export default function Home() {
 
   const handleUpdateOrderQuantity = async (orderId: number, newQuantity: number) => {
     const qty = Math.max(1, isNaN(newQuantity) ? 1 : newQuantity)
-    const { error } = await supabase
-      .from('orders')
-      .update({ quantity: qty })
-      .eq('id', orderId)
+    const { error } = await supabase.from('orders').update({ quantity: qty }).eq('id', orderId)
 
     if (error) {
       console.error('수량 변경 에러:', error)
@@ -743,10 +716,7 @@ export default function Home() {
     if (!confirm('정말 이 발주 기록을 삭제하시겠습니까?')) return
 
     const idsToDelete = itemsList.map(item => item.id)
-    const { error } = await supabase
-      .from('orders')
-      .delete()
-      .in('id', idsToDelete)
+    const { error } = await supabase.from('orders').delete().in('id', idsToDelete)
 
     if (error) {
       console.error('삭제 에러:', error)
@@ -766,10 +736,7 @@ export default function Home() {
     const newStatus = !currentStatus
     const idsToUpdate = itemsList.map(item => item.id)
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ is_completed: newStatus })
-      .in('id', idsToUpdate)
+    const { error } = await supabase.from('orders').update({ is_completed: newStatus }).in('id', idsToUpdate)
 
     if (error) {
       console.error('상태 변경 에러:', error)
@@ -1047,6 +1014,96 @@ export default function Home() {
 
   const currentItemSelected = items.find(i => i.id === selectedChartItemId)
   const filteredPricesForChart = priceHistory.filter(p => p.item_id === selectedChartItemId)
+
+  // 가독성 높인 행사 상세 카드 컴포넌트 렌더링 함수
+  const renderEventCardDetails = (data: EventRecord['event_data']) => (
+    <div className="space-y-5 mt-4 pt-4 border-t border-amber-200">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* 전기간 야채 */}
+        <div className="bg-gradient-to-br from-green-50/80 to-emerald-50/40 p-4 rounded-2xl border border-green-200 shadow-2xs">
+          <div className="flex justify-between items-center mb-3 border-b border-green-200 pb-2">
+            <span className="text-xs font-black text-green-900 flex items-center space-x-1">
+              <span>🥦 전기간 야채 품목</span>
+            </span>
+            <span className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold">총 6종</span>
+          </div>
+          <div className="space-y-2">
+            {data.wholeVeg?.map((item, i) => (
+              <div key={i} className={`flex justify-between items-center px-3 py-2 rounded-xl border ${item.name ? 'bg-white border-green-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
+                <span className={`font-bold text-xs ${item.name ? 'text-gray-800' : 'text-gray-300'}`}>
+                  {item.name ? `${i + 1}. ${item.name}` : `${i + 1}. (미등록)`}
+                </span>
+                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${item.name ? 'bg-green-100 text-green-800' : 'text-gray-300'}`}>
+                  {item.price || '-'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 전기간 과일 */}
+        <div className="bg-gradient-to-br from-red-50/80 to-rose-50/40 p-4 rounded-2xl border border-red-200 shadow-2xs">
+          <div className="flex justify-between items-center mb-3 border-b border-red-200 pb-2">
+            <span className="text-xs font-black text-red-900 flex items-center space-x-1">
+              <span>🍎 전기간 과일 품목</span>
+            </span>
+            <span className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold">총 3종</span>
+          </div>
+          <div className="space-y-2">
+            {data.wholeFruit?.map((item, i) => (
+              <div key={i} className={`flex justify-between items-center px-3 py-2 rounded-xl border ${item.name ? 'bg-white border-red-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
+                <span className={`font-bold text-xs ${item.name ? 'text-gray-800' : 'text-gray-300'}`}>
+                  {item.name ? `${i + 1}. ${item.name}` : `${i + 1}. (미등록)`}
+                </span>
+                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${item.name ? 'bg-red-100 text-red-700' : 'text-gray-300'}`}>
+                  {item.price || '-'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 세부 기간별 상품 */}
+      <div className="space-y-3 pt-2">
+        <h4 className="text-xs font-black text-gray-800 flex items-center space-x-1">
+          <span>📌 세부 기간별 행사 품목 리스트</span>
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {data.periods?.map((p, pIdx) => (
+            <div key={pIdx} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3 shadow-2xs">
+              <div className="border-b border-gray-200 pb-2">
+                <span className="text-xs font-black text-indigo-700 bg-white px-2.5 py-1 rounded-md border shadow-2xs inline-block">
+                  {p.label}
+                </span>
+              </div>
+              <div className="space-y-3 text-xs">
+                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-2xs space-y-1.5">
+                  <span className="font-extrabold text-red-600 block text-[11px] pb-1 border-b border-red-50">🍎 과일류 (3종)</span>
+                  {p.fruit?.map((f, fi) => (
+                    <div key={fi} className={`flex justify-between py-1 px-1.5 rounded ${f.name ? 'bg-red-50/30 font-bold text-gray-800' : 'text-gray-300'}`}>
+                      <span>{f.name ? `· ${f.name}` : `-`}</span>
+                      <span className="font-semibold text-red-600">{f.price || '-'}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-2xs space-y-1.5">
+                  <span className="font-extrabold text-green-700 block text-[11px] pb-1 border-b border-green-50">🥦 야채류 (3종)</span>
+                  {p.veg?.map((v, vi) => (
+                    <div key={vi} className={`flex justify-between py-1 px-1.5 rounded ${v.name ? 'bg-green-50/30 font-bold text-gray-800' : 'text-gray-300'}`}>
+                      <span>{v.name ? `· ${v.name}` : `-`}</span>
+                      <span className="font-semibold text-green-700">{v.price || '-'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <main className="max-w-4xl mx-auto p-4 pb-28">
@@ -2196,7 +2253,7 @@ export default function Home() {
                 events.filter(ev => !ev.event_data?.is_ended).map(ev => {
                   const data = ev.event_data
                   return (
-                    <div key={ev.id} className="bg-white border-2 border-amber-300 rounded-2xl p-6 shadow-md space-y-5">
+                    <div key={ev.id} className="bg-white border-2 border-amber-300 rounded-2xl p-6 shadow-md space-y-3">
                       <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-4">
                         <div>
                           <span className="text-xs font-black text-amber-800 bg-amber-100 px-3 py-1 rounded-md">
@@ -2237,77 +2294,7 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* 가독성을 대폭 개선한 깔끔한 표/그리드 구조 */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-green-50/50 p-4 rounded-xl border border-green-200">
-                          <span className="text-xs font-black text-green-900 block mb-2.5 border-b border-green-200 pb-1">
-                            🥦 전기간 야채 품목 (6종)
-                          </span>
-                          <div className="space-y-1.5 text-xs">
-                            {data.wholeVeg?.map((item, i) => (
-                              item.name ? (
-                                <div key={i} className="flex justify-between items-center bg-white px-3 py-1.5 rounded-lg border border-green-100 shadow-2xs">
-                                  <span className="font-bold text-gray-800">{item.name}</span>
-                                  <span className="font-extrabold text-green-700">{item.price || '-'}</span>
-                                </div>
-                              ) : null
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="bg-red-50/50 p-4 rounded-xl border border-red-200">
-                          <span className="text-xs font-black text-red-800 block mb-2.5 border-b border-red-200 pb-1">
-                            🍎 전기간 과일 품목 (3종)
-                          </span>
-                          <div className="space-y-1.5 text-xs">
-                            {data.wholeFruit?.map((item, i) => (
-                              item.name ? (
-                                <div key={i} className="flex justify-between items-center bg-white px-3 py-1.5 rounded-lg border border-red-100 shadow-2xs">
-                                  <span className="font-bold text-gray-800">{item.name}</span>
-                                  <span className="font-extrabold text-red-600">{item.price || '-'}</span>
-                                </div>
-                              ) : null
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 pt-2">
-                        <h4 className="text-xs font-black text-gray-700 border-b pb-1">📌 세부 기간별 행사 품목</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {data.periods?.map((p, pIdx) => (
-                            <div key={pIdx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2.5">
-                              <span className="text-xs font-black text-indigo-700 bg-white px-2.5 py-1 rounded-md border shadow-2xs inline-block">
-                                {p.label}
-                              </span>
-                              <div className="text-xs space-y-2">
-                                <div>
-                                  <span className="font-bold text-red-600 block mb-1">🍎 과일류:</span>
-                                  <div className="space-y-1 pl-2">
-                                    {p.fruit?.map((f, fi) => f.name ? (
-                                      <div key={fi} className="flex justify-between bg-white px-2 py-1 rounded border border-gray-100">
-                                        <span>· {f.name}</span>
-                                        <span className="font-semibold">{f.price || '-'}</span>
-                                      </div>
-                                    ) : null)}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="font-bold text-green-700 block mb-1">🥦 야채류:</span>
-                                  <div className="space-y-1 pl-2">
-                                    {p.veg?.map((v, vi) => v.name ? (
-                                      <div key={vi} className="flex justify-between bg-white px-2 py-1 rounded border border-gray-100">
-                                        <span>· {v.name}</span>
-                                        <span className="font-semibold">{v.price || '-'}</span>
-                                      </div>
-                                    ) : null)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      {renderEventCardDetails(data)}
                     </div>
                   )
                 })
@@ -2482,7 +2469,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* 3) 지나간 행사 탭 및 복구 기능 */}
+          {/* 3) 지나간 행사 탭 및 펼쳐보기 기능 */}
           {eventSubTab === 'ENDED' && (
             <div className="space-y-6">
               {events.filter(ev => ev.event_data?.is_ended).length === 0 ? (
@@ -2491,34 +2478,50 @@ export default function Home() {
                 </div>
               ) : (
                 events.filter(ev => ev.event_data?.is_ended).map(ev => {
+                  const isExpanded = expandedEndedIds[ev.id] || false
                   return (
-                    <div key={ev.id} className="bg-gray-50 border-2 border-gray-300 rounded-2xl p-6 shadow-xs space-y-3 opacity-90">
+                    <div key={ev.id} className="bg-white border-2 border-gray-300 rounded-2xl p-6 shadow-sm space-y-3">
                       <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
                         <div>
-                          <span className="text-xs font-black text-gray-600 bg-gray-200 px-3 py-1 rounded-md">
+                          <span className="text-xs font-black text-gray-600 bg-gray-100 px-3 py-1 rounded-md border">
                             📅 {ev.period} (종료됨)
                           </span>
                           <h3 className="text-lg font-black text-gray-800 mt-2">{ev.title}</h3>
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedEndedIds(prev => ({ ...prev, [ev.id]: !isExpanded }))
+                            }}
+                            className="bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            {isExpanded ? '🔼 접기' : '🔍 펼쳐보기'}
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleToggleEventEnded(ev, false)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
                           >
-                            <span>↩️ 복구 (현재 행사로 이동)</span>
+                            ↩️ 복구 (현재 행사로 이동)
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteEvent(ev.id)}
-                            className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all"
+                            className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
                           >
                             🗑️ 삭제
                           </button>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-500">실수로 종료하셨거나 다시 참고해야 할 경우 '복구' 버튼을 누르면 현재 행사 탭으로 되돌아갑니다.</p>
+
+                      {/* 펼쳐보기 상태일 때만 상세 내역 렌더링 */}
+                      {isExpanded ? (
+                        renderEventCardDetails(ev.event_data)
+                      ) : (
+                        <p className="text-xs text-gray-400 py-1">상세 품목과 가격을 확인하려면 우측 상단의 [🔍 펼쳐보기] 버튼을 눌러주세요.</p>
+                      )}
                     </div>
                   )
                 })
