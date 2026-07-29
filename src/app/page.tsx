@@ -14,7 +14,7 @@ interface OrderInput {
   [itemId: number]: {
     checked: boolean
     quantity: number
-    isEvent?: boolean // 행사 여부 필드 추가
+    isEvent?: boolean
   }
 }
 
@@ -122,8 +122,9 @@ export default function Home() {
   const [isAiChartAnalyzing, setIsAiChartAnalyzing] = useState(false)
   const [aiChartInsightText, setAiChartInsightText] = useState<string | null>(null)
 
-  // 행사 관리 상태
+  // 행사 관리 상태 및 수정 모드 ID
   const [events, setEvents] = useState<EventRecord[]>([])
+  const [editingEventId, setEditingEventId] = useState<number | null>(null)
   const [eventTitle, setEventTitle] = useState('')
   const [eventPeriod, setEventPeriod] = useState('')
   const [wholeVeg, setWholeVeg] = useState<ItemPricePair[]>(Array(6).fill({ name: '', price: '' }))
@@ -517,7 +518,7 @@ export default function Home() {
     setPeriods(updatedPeriods)
   }
 
-  const handleAddEvent = async (e: React.FormEvent) => {
+  const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!eventTitle.trim() || !eventPeriod.trim()) {
       alert('행사 이름과 기간을 입력해주세요!')
@@ -531,32 +532,74 @@ export default function Home() {
       periods,
     }
 
-    const { error } = await supabase.from('events').insert([
-      {
-        title: eventTitle.trim(),
-        period: eventPeriod.trim(),
-        event_data: eventDataPayload,
-      },
-    ])
-    setLoading(false)
+    if (editingEventId) {
+      const { error } = await supabase
+        .from('events')
+        .update({
+          title: eventTitle.trim(),
+          period: eventPeriod.trim(),
+          event_data: eventDataPayload,
+        })
+        .eq('id', editingEventId)
+      
+      setLoading(false)
 
-    if (error) {
-      console.error('행사 등록 에러:', error)
-      alert('행사 등록 중 오류가 발생했습니다.')
+      if (error) {
+        console.error('행사 수정 에러:', error)
+        alert('행사 수정 중 오류가 발생했습니다.')
+      } else {
+        alert('✅ 행사 계획이 성공적으로 수정되었습니다!')
+        resetEventForm()
+        fetchEvents()
+      }
     } else {
-      alert('🎉 새로운 행사 계획이 성공적으로 등록되었습니다!')
-      setEventTitle('')
-      setEventPeriod('')
-      setWholeVeg(Array(6).fill({ name: '', price: '' }))
-      setWholeFruit(Array(3).fill({ name: '', price: '' }))
-      setPeriods([
-        { label: '1차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
-        { label: '2차 (월~화)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
-        { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
-        { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      const { error } = await supabase.from('events').insert([
+        {
+          title: eventTitle.trim(),
+          period: eventPeriod.trim(),
+          event_data: eventDataPayload,
+        },
       ])
-      fetchEvents()
+      setLoading(false)
+
+      if (error) {
+        console.error('행사 등록 에러:', error)
+        alert('행사 등록 중 오류가 발생했습니다.')
+      } else {
+        alert('🎉 새로운 행사 계획이 성공적으로 등록되었습니다!')
+        resetEventForm()
+        fetchEvents()
+      }
     }
+  }
+
+  const resetEventForm = () => {
+    setEditingEventId(null)
+    setEventTitle('')
+    setEventPeriod('')
+    setWholeVeg(Array(6).fill({ name: '', price: '' }))
+    setWholeFruit(Array(3).fill({ name: '', price: '' }))
+    setPeriods([
+      { label: '1차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '2차 (월~화)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+    ])
+  }
+
+  const handleLoadEventForEdit = (ev: EventRecord) => {
+    setEditingEventId(ev.id)
+    setEventTitle(ev.title)
+    setEventPeriod(ev.period)
+    setWholeVeg(ev.event_data.wholeVeg || Array(6).fill({ name: '', price: '' }))
+    setWholeFruit(ev.event_data.wholeFruit || Array(3).fill({ name: '', price: '' }))
+    setPeriods(ev.event_data.periods || [
+      { label: '1차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '2차 (월~화)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+      { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
+    ])
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleDeleteEvent = async (eventId: number) => {
@@ -567,6 +610,7 @@ export default function Home() {
       console.error('행사 삭제 에러:', error)
       alert('삭제 중 오류가 발생했습니다.')
     } else {
+      if (editingEventId === eventId) resetEventForm()
       fetchEvents()
     }
   }
@@ -2204,8 +2248,22 @@ export default function Home() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">➕ 새로운 행사 등록하기</h3>
-            <form onSubmit={handleAddEvent} className="space-y-6">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-sm font-extrabold text-gray-800">
+                {editingEventId ? '✏️ 행사 계획 수정하기' : '➕ 새로운 행사 등록하기'}
+              </h3>
+              {editingEventId && (
+                <button
+                  type="button"
+                  onClick={resetEventForm}
+                  className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 hover:bg-red-100"
+                >
+                  수정 취소
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveEvent} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-black text-gray-700 mb-1">행사 이름</label>
@@ -2344,9 +2402,11 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 mt-2"
+                className={`w-full font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 mt-2 text-white ${
+                  editingEventId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'
+                }`}
               >
-                🎉 행사 계획 등록하기
+                {editingEventId ? '✏️ 행사 계획 수정 완료하기' : '🎉 행사 계획 등록하기'}
               </button>
             </form>
           </div>
@@ -2373,10 +2433,17 @@ export default function Home() {
                       <div className="flex gap-2">
                         <button
                           type="button"
+                          onClick={() => handleLoadEventForEdit(ev)}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
+                        >
+                          <span>✏️ 수정</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleCopyEventText(ev)}
                           className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
                         >
-                          <span>📋 공유용 텍스트 복사</span>
+                          <span>📋 복사</span>
                         </button>
                         <button
                           type="button"
