@@ -80,6 +80,7 @@ export default function Home() {
   const [fruitSubTab, setFruitSubTab] = useState<'FRUIT_FREQUENT' | 'FRUIT_SPECIAL'>('FRUIT_FREQUENT')
 
   const [boardSubTab, setBoardSubTab] = useState<'VEG' | 'FRUIT'>('VEG')
+  const [stockSubTab, setStockSubTab] = useState<'VEG' | 'FRUIT'>('VEG') // 재고파악 채소/과일 분리 탭
   const [searchQuery, setSearchQuery] = useState('')
   const [ordererName, setOrdererName] = useState('농산팀')
   const [orderHistory, setOrderHistory] = useState<OrderRecord[]>([])
@@ -92,8 +93,8 @@ export default function Home() {
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
 
-  // 재고 파악 실물 재고 입력 상태 (itemId 기준)
-  const [physicalStocks, setPhysicalStocks] = useState<Record<number, number>>({})
+  // 재고 파악 실물 재고 입력 상태 (number 또는 string 허용)
+  const [physicalStocks, setPhysicalStocks] = useState<Record<number, number | string>>({})
 
   // 내일 날씨 위젯 상태 (대구 칠곡 기준)
   const [tomorrowWeather, setTomorrowWeather] = useState<{ maxTemp: number; minTemp: number; desc: string; icon: string; rainProb: number } | null>(null)
@@ -756,6 +757,14 @@ export default function Home() {
       if (fruitSubTab === 'FRUIT_SPECIAL') return cat === 'fruit_special'
     }
     return false
+  })
+
+  // 재고파악 탭용 필터링된 아이템
+  const filteredStockItems = items.filter(item => {
+    const cat = item.category?.toLowerCase() || ''
+    const isFruit = cat.includes('fruit')
+    if (stockSubTab === 'VEG') return !isFruit
+    return isFruit
   })
 
   const renderItemCard = (item: Item) => {
@@ -1506,7 +1515,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📦 재고파악 탭 영역 */}
+      {/* 📦 재고파악 탭 영역 (채소류 / 과일류 분리) */}
       {mainTab === 'STOCK' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center mb-2">
@@ -1518,20 +1527,43 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="flex bg-gray-100 p-1.5 rounded-xl mb-4 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setStockSubTab('VEG')}
+              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                stockSubTab === 'VEG' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              🥦 채소류 재고 파악
+            </button>
+            <button
+              type="button"
+              onClick={() => setStockSubTab('FRUIT')}
+              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                stockSubTab === 'FRUIT' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              🍎 과일류 재고 파악
+            </button>
+          </div>
+
           <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-sm font-extrabold text-purple-900 border-b border-purple-200 pb-2">
               💡 실물 재고 비교 가이드
             </h3>
             <p className="text-xs text-purple-900 leading-relaxed">
-              등록된 모든 품목별로 <strong>누적 발주 수량</strong>이 자동 계산되어 표시됩니다. 실물 재고 입력란에 현재 창고에 있는 실제 수량을 적어 넣으시면 발주량과의 차이(부족/일치)를 간편하게 대조하실 수 있습니다.
+              선택한 분류({stockSubTab === 'VEG' ? '채소류' : '과일류'})의 품목별로 <strong>누적 발주 수량</strong>이 자동 계산되어 표시됩니다. 실물 재고 입력란에 현재 창고에 있는 실제 수량을 적어 넣으시면 발주량과의 차이(부족/일치)를 간편하게 대조하실 수 있습니다.
             </p>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
-            <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">📋 품목별 재고 대조 리스트</h3>
+            <h3 className="text-sm font-extrabold text-gray-800 border-b pb-2">
+              📋 {stockSubTab === 'VEG' ? '🥦 채소류' : '🍎 과일류'} 재고 대조 리스트
+            </h3>
             
-            {items.length === 0 ? (
-              <p className="text-xs text-gray-400 py-8 text-center">등록된 품목이 없습니다.</p>
+            {filteredStockItems.length === 0 ? (
+              <p className="text-xs text-gray-400 py-8 text-center">해당 분류에 등록된 품목이 없습니다.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -1545,8 +1577,7 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {items.map(item => {
-                      // orderHistory에서 해당 item의 총 발주량 계산 (전체 또는 완료 건 기준 선택 가능, 여기서는 전체 발주 누적 합산)
+                    {filteredStockItems.map(item => {
                       const totalOrdered = orderHistory
                         .filter(o => o.item_id === item.id || o.item_name === item.name)
                         .reduce((sum, o) => sum + o.quantity, 0)
@@ -1572,7 +1603,7 @@ export default function Home() {
                                 const val = e.target.value
                                 setPhysicalStocks(prev => ({
                                   ...prev,
-                                  [item.id]: val === '' ? 0 : Number(val)
+                                  [item.id]: val === '' ? '' : Number(val)
                                 }))
                               }}
                               className="w-24 px-2 py-1.5 text-right font-bold border rounded-lg bg-white text-purple-700 focus:outline-none focus:border-purple-500"
