@@ -57,6 +57,7 @@ interface EventRecord {
     wholeVeg: ItemPricePair[]
     wholeFruit: ItemPricePair[]
     periods: PeriodData[]
+    is_ended?: boolean // 행사 종료 여부
   }
   created_at: string
 }
@@ -94,7 +95,7 @@ export default function Home() {
   const [inputPrice, setInputPrice] = useState('')
   const [inputPriceDate, setInputPriceDate] = useState(new Date().toISOString().split('T')[0])
 
-  // 재고 파악 실물 재고 입력 상태 (number 또는 string 허용)
+  // 재고 파악 실물 재고 입력 상태
   const [physicalStocks, setPhysicalStocks] = useState<Record<number, number | string>>({})
 
   // 내일 날씨 위젯 상태 (대구 칠곡 기준)
@@ -122,7 +123,8 @@ export default function Home() {
   const [isAiChartAnalyzing, setIsAiChartAnalyzing] = useState(false)
   const [aiChartInsightText, setAiChartInsightText] = useState<string | null>(null)
 
-  // 행사 관리 상태 및 수정 모드 ID
+  // 행사 관리 하위 탭 및 상태
+  const [eventSubTab, setEventSubTab] = useState<'CURRENT' | 'WRITE' | 'ENDED'>('CURRENT')
   const [events, setEvents] = useState<EventRecord[]>([])
   const [editingEventId, setEditingEventId] = useState<number | null>(null)
   const [eventTitle, setEventTitle] = useState('')
@@ -392,6 +394,8 @@ export default function Home() {
 
     setLoading(true)
 
+    // 기존 발주 수정 시 원래의 created_at 시간을 유지하여 링크/위치 변경 방지
+    const targetCreatedAt = editingOriginalTime || new Date().toISOString()
     if (editingOriginalTime) {
       await supabase.from('orders').delete().eq('created_at', editingOriginalTime)
     }
@@ -409,6 +413,7 @@ export default function Home() {
         quantity: value.quantity,
         orderer: ordererName.trim(),
         is_completed: false,
+        created_at: targetCreatedAt,
       }
     })
 
@@ -526,10 +531,12 @@ export default function Home() {
     }
 
     setLoading(true)
+    const existingEnded = events.find(ev => ev.id === editingEventId)?.event_data?.is_ended || false
     const eventDataPayload = {
       wholeVeg,
       wholeFruit,
       periods,
+      is_ended: existingEnded,
     }
 
     if (editingEventId) {
@@ -550,6 +557,7 @@ export default function Home() {
       } else {
         alert('✅ 행사 계획이 성공적으로 수정되었습니다!')
         resetEventForm()
+        setEventSubTab('CURRENT')
         fetchEvents()
       }
     } else {
@@ -568,6 +576,7 @@ export default function Home() {
       } else {
         alert('🎉 새로운 행사 계획이 성공적으로 등록되었습니다!')
         resetEventForm()
+        setEventSubTab('CURRENT')
         fetchEvents()
       }
     }
@@ -599,7 +608,26 @@ export default function Home() {
       { label: '3차 (수~목)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
       { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
     ])
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setEventSubTab('WRITE')
+  }
+
+  const handleToggleEventEnded = async (ev: EventRecord, targetEndedStatus: boolean) => {
+    const updatedEventData = {
+      ...ev.event_data,
+      is_ended: targetEndedStatus,
+    }
+
+    const { error } = await supabase
+      .from('events')
+      .update({ event_data: updatedEventData })
+      .eq('id', ev.id)
+
+    if (error) {
+      console.error('행사 상태 변경 에러:', error)
+      alert('상태 변경 중 오류가 발생했습니다.')
+    } else {
+      fetchEvents()
+    }
   }
 
   const handleDeleteEvent = async (eventId: number) => {
@@ -708,7 +736,7 @@ export default function Home() {
     setOrderInputs(newInputs)
     setEditingOriginalTime(itemsList[0]?.created_at || null)
     handleTabChange('WRITE')
-    alert('📝 해당 발주 기록을 수정 모드로 불러왔습니다! 저장 시 기존 기록이 수정(대체)됩니다.')
+    alert('📝 해당 발주 기록을 수정 모드로 불러왔습니다! 저장 시 기존 링크와 위치가 유지된 채 수정됩니다.')
   }
 
   const handleDeleteOrderBatch = async (itemsList: OrderRecord[]) => {
@@ -822,7 +850,6 @@ export default function Home() {
     return false
   })
 
-  // 재고파악 탭용 필터링된 아이템
   const filteredStockItems = items.filter(item => {
     const cat = item.category?.toLowerCase() || ''
     const isFruit = cat.includes('fruit')
@@ -830,7 +857,6 @@ export default function Home() {
     return isFruit
   })
 
-  // 🤖 AI 추천 문구에 실시간 재고 부족 품목 연동 로직
   const shortageItems = items.filter(item => {
     const totalOrdered = orderHistory
       .filter(o => o.item_id === item.id || o.item_name.includes(item.name))
@@ -1123,7 +1149,7 @@ export default function Home() {
 
           {editingOriginalTime && (
             <div className="bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl mb-4 flex items-center justify-between shadow-sm">
-              <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (저장 시 기존 항목이 수정/대체됩니다)</span>
+              <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (링크 및 위치가 그대로 유지됩니다)</span>
               <button
                 type="button"
                 onClick={() => { setEditingOriginalTime(null); setOrderInputs({}); }}
@@ -1614,7 +1640,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📦 재고파악 탭 영역 (채소류 / 과일류 분리) */}
+      {/* 📦 재고파악 탭 영역 */}
       {mainTab === 'STOCK' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center mb-2">
@@ -2121,391 +2147,384 @@ export default function Home() {
         </div>
       )}
 
+      {/* 🎪 행사관리 탭 (하위탭: 현재 행사 / 행사 작성 / 지나간 행사) */}
       {mainTab === 'EVENT' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
-            <span>🎉 농산팀 행사 계획 및 공유 (품목/가격 칸 분리형)</span>
+            <span>🎉 농산팀 행사 계획 및 가독성 개선 관리</span>
           </h2>
 
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b border-amber-200 pb-2">
-              <h3 className="text-sm font-black text-amber-950 flex items-center space-x-1.5">
-                <span>💰 행사 마진율 & 손익 자동 시뮬레이터</span>
-              </h3>
-              <span className="text-[11px] font-bold text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded">
-                실시간 마진 계산
-              </span>
-            </div>
-            <p className="text-xs text-amber-900/80">
-              특가 행사 기획 시, 예상 도매원가와 판매가를 입력해 마진율과 손익 상태(안전/주의/역마진)를 미리 시뮬레이션 해보세요.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
-              <div>
-                <label className="block text-[11px] font-bold text-amber-900 mb-1">품목명</label>
-                <input
-                  type="text"
-                  placeholder="예: 수박 1통"
-                  value={simName}
-                  onChange={e => setSimName(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-amber-900 mb-1">예상 도매원가 (원)</label>
-                <input
-                  type="number"
-                  placeholder="15000"
-                  value={simCost}
-                  onChange={e => setSimCost(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium text-right"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-amber-900 mb-1">행사 판매가 (원)</label>
-                <input
-                  type="number"
-                  placeholder="18900"
-                  value={simPrice}
-                  onChange={e => setSimPrice(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-amber-300 rounded-xl bg-white font-medium text-right"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!simName.trim() || !simCost || !simPrice) {
-                    alert('모든 항목을 올바르게 입력해주세요!')
-                    return
-                  }
-                  const newItem: SimulatorItem = {
-                    id: Date.now().toString(),
-                    name: simName.trim(),
-                    cost: Number(simCost),
-                    price: Number(simPrice)
-                  }
-                  setSimulatorItems([...simulatorItems, newItem])
-                  setSimName('')
-                  setSimCost('')
-                  setSimPrice('')
-                }}
-                className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-xl text-xs shadow-sm transition-all"
-              >
-                ➕ 시뮬레이션 추가
-              </button>
-            </div>
-
-            {simulatorItems.length > 0 && (
-              <div className="bg-white rounded-xl border border-amber-200 overflow-hidden mt-3">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-amber-100/70 text-amber-950 font-bold border-b border-amber-200">
-                    <tr>
-                      <th className="p-2.5">품목명</th>
-                      <th className="p-2.5 text-right">도매원가</th>
-                      <th className="p-2.5 text-right">판매가</th>
-                      <th className="p-2.5 text-right">마진액 (마진율)</th>
-                      <th className="p-2.5 text-center">손익 상태</th>
-                      <th className="p-2.5 text-center w-16">삭제</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-amber-100">
-                    {simulatorItems.map(item => {
-                      const profit = item.price - item.cost
-                      const marginRate = item.price > 0 ? ((profit / item.price) * 100).toFixed(1) : '0'
-                      const isSafe = Number(marginRate) >= 20
-                      const isWarning = Number(marginRate) >= 10 && Number(marginRate) < 20
-                      const isDanger = Number(marginRate) < 10
-
-                      return (
-                        <tr key={item.id} className="hover:bg-amber-50/50">
-                          <td className="p-2.5 font-bold text-gray-800">{item.name}</td>
-                          <td className="p-2.5 text-right text-gray-600">{item.cost.toLocaleString()}원</td>
-                          <td className="p-2.5 text-right font-semibold text-gray-800">{item.price.toLocaleString()}원</td>
-                          <td className="p-2.5 text-right font-extrabold text-amber-800">
-                            {profit.toLocaleString()}원 ({marginRate}%)
-                          </td>
-                          <td className="p-2.5 text-center font-bold">
-                            {isSafe && <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[11px]">🟢 안전마진</span>}
-                            {isWarning && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[11px]">🟡 보통</span>}
-                            {isDanger && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[11px]">🔴 주의/저마진</span>}
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setSimulatorItems(simulatorItems.filter(i => i.id !== item.id))}
-                              className="text-red-500 hover:text-red-700 font-bold text-xs"
-                            >
-                              삭제
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          {/* 행사 하위 탭 네비게이션 */}
+          <div className="grid grid-cols-3 gap-2 bg-gray-100 p-1.5 rounded-xl shadow-inner">
+            <button
+              type="button"
+              onClick={() => setEventSubTab('CURRENT')}
+              className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all ${
+                eventSubTab === 'CURRENT' ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              🔥 현재 행사 ({events.filter(ev => !ev.event_data?.is_ended).length}건)
+            </button>
+            <button
+              type="button"
+              onClick={() => { resetEventForm(); setEventSubTab('WRITE'); }}
+              className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all ${
+                eventSubTab === 'WRITE' ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {editingEventId ? '✏️ 행사 수정 중' : '➕ 행사 작성'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEventSubTab('ENDED')}
+              className={`py-3 text-xs sm:text-sm font-black rounded-xl transition-all ${
+                eventSubTab === 'ENDED' ? 'bg-gray-700 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              📦 지나간 행사 ({events.filter(ev => ev.event_data?.is_ended).length}건)
+            </button>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-sm font-extrabold text-gray-800">
-                {editingEventId ? '✏️ 행사 계획 수정하기' : '➕ 새로운 행사 등록하기'}
-              </h3>
-              {editingEventId && (
-                <button
-                  type="button"
-                  onClick={resetEventForm}
-                  className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 hover:bg-red-100"
-                >
-                  수정 취소
-                </button>
+          {/* 1) 현재 행사 탭 */}
+          {eventSubTab === 'CURRENT' && (
+            <div className="space-y-6">
+              {events.filter(ev => !ev.event_data?.is_ended).length === 0 ? (
+                <div className="text-center py-16 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
+                  <p className="text-gray-400 text-sm">진행 중인 현재 행사 계획이 없습니다. 행사 작성 탭에서 등록해 보세요!</p>
+                </div>
+              ) : (
+                events.filter(ev => !ev.event_data?.is_ended).map(ev => {
+                  const data = ev.event_data
+                  return (
+                    <div key={ev.id} className="bg-white border-2 border-amber-300 rounded-2xl p-6 shadow-md space-y-5">
+                      <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-4">
+                        <div>
+                          <span className="text-xs font-black text-amber-800 bg-amber-100 px-3 py-1 rounded-md">
+                            📅 {ev.period}
+                          </span>
+                          <h3 className="text-xl font-black text-gray-900 mt-2">{ev.title}</h3>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleLoadEventForEdit(ev)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            ✏️ 수정
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyEventText(ev)}
+                            className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            📋 복사
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleEventEnded(ev, true)}
+                            className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            🏁 행사 종료
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEvent(ev.id)}
+                            className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            🗑️ 삭제
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 가독성을 대폭 개선한 깔끔한 표/그리드 구조 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-green-50/50 p-4 rounded-xl border border-green-200">
+                          <span className="text-xs font-black text-green-900 block mb-2.5 border-b border-green-200 pb-1">
+                            🥦 전기간 야채 품목 (6종)
+                          </span>
+                          <div className="space-y-1.5 text-xs">
+                            {data.wholeVeg?.map((item, i) => (
+                              item.name ? (
+                                <div key={i} className="flex justify-between items-center bg-white px-3 py-1.5 rounded-lg border border-green-100 shadow-2xs">
+                                  <span className="font-bold text-gray-800">{item.name}</span>
+                                  <span className="font-extrabold text-green-700">{item.price || '-'}</span>
+                                </div>
+                              ) : null
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-red-50/50 p-4 rounded-xl border border-red-200">
+                          <span className="text-xs font-black text-red-800 block mb-2.5 border-b border-red-200 pb-1">
+                            🍎 전기간 과일 품목 (3종)
+                          </span>
+                          <div className="space-y-1.5 text-xs">
+                            {data.wholeFruit?.map((item, i) => (
+                              item.name ? (
+                                <div key={i} className="flex justify-between items-center bg-white px-3 py-1.5 rounded-lg border border-red-100 shadow-2xs">
+                                  <span className="font-bold text-gray-800">{item.name}</span>
+                                  <span className="font-extrabold text-red-600">{item.price || '-'}</span>
+                                </div>
+                              ) : null
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 pt-2">
+                        <h4 className="text-xs font-black text-gray-700 border-b pb-1">📌 세부 기간별 행사 품목</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {data.periods?.map((p, pIdx) => (
+                            <div key={pIdx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2.5">
+                              <span className="text-xs font-black text-indigo-700 bg-white px-2.5 py-1 rounded-md border shadow-2xs inline-block">
+                                {p.label}
+                              </span>
+                              <div className="text-xs space-y-2">
+                                <div>
+                                  <span className="font-bold text-red-600 block mb-1">🍎 과일류:</span>
+                                  <div className="space-y-1 pl-2">
+                                    {p.fruit?.map((f, fi) => f.name ? (
+                                      <div key={fi} className="flex justify-between bg-white px-2 py-1 rounded border border-gray-100">
+                                        <span>· {f.name}</span>
+                                        <span className="font-semibold">{f.price || '-'}</span>
+                                      </div>
+                                    ) : null)}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="font-bold text-green-700 block mb-1">🥦 야채류:</span>
+                                  <div className="space-y-1 pl-2">
+                                    {p.veg?.map((v, vi) => v.name ? (
+                                      <div key={vi} className="flex justify-between bg-white px-2 py-1 rounded border border-gray-100">
+                                        <span>· {v.name}</span>
+                                        <span className="font-semibold">{v.price || '-'}</span>
+                                      </div>
+                                    ) : null)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
               )}
             </div>
+          )}
 
-            <form onSubmit={handleSaveEvent} className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">행사 이름</label>
-                  <input
-                    type="text"
-                    value={eventTitle}
-                    onChange={e => setEventTitle(e.target.value)}
-                    placeholder="예: 토요 붐 할인 행사"
-                    className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">행사 기간</label>
-                  <input
-                    type="text"
-                    value={eventPeriod}
-                    onChange={e => setEventPeriod(e.target.value)}
-                    placeholder="예: 3월 7일 ~ 3월 14일"
-                    className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
-                  />
-                </div>
+          {/* 2) 행사 작성 및 수정 탭 */}
+          {eventSubTab === 'WRITE' && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="text-sm font-extrabold text-gray-800">
+                  {editingEventId ? '✏️ 행사 계획 수정하기' : '➕ 새로운 행사 계획 등록하기'}
+                </h3>
+                {editingEventId && (
+                  <button
+                    type="button"
+                    onClick={() => { resetEventForm(); setEventSubTab('CURRENT'); }}
+                    className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 hover:bg-red-100"
+                  >
+                    작성/수정 취소
+                  </button>
+                )}
               </div>
 
-              <div className="space-y-4 pt-3 border-t">
-                <h4 className="text-xs font-black text-indigo-900 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
-                  🛒 전기간 상품 입력 (야채 6종 / 과일 3종)
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-green-50/40 p-4 rounded-xl border border-green-200 space-y-2">
-                    <span className="text-xs font-bold text-green-800 block mb-1">🥦 전기간 야채 (총 6개)</span>
-                    {wholeVeg.map((item, idx) => (
-                      <div key={idx} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={item.name}
-                          onChange={e => updateWholeVeg(idx, 'name', e.target.value)}
-                          placeholder={`야채 ${idx + 1} 품목명`}
-                          className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
-                        />
-                        <input
-                          type="text"
-                          value={item.price}
-                          onChange={e => updateWholeVeg(idx, 'price', e.target.value)}
-                          placeholder="가격/규격"
-                          className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
-                        />
-                      </div>
-                    ))}
+              <form onSubmit={handleSaveEvent} className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black text-gray-700 mb-1">행사 이름</label>
+                    <input
+                      type="text"
+                      value={eventTitle}
+                      onChange={e => setEventTitle(e.target.value)}
+                      placeholder="예: 토요 붐 할인 행사"
+                      className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
+                    />
                   </div>
-
-                  <div className="bg-red-50/40 p-4 rounded-xl border border-red-200 space-y-2">
-                    <span className="text-xs font-bold text-red-700 block mb-1">🍎 전기간 과일 (총 3개)</span>
-                    {wholeFruit.map((item, idx) => (
-                      <div key={idx} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={item.name}
-                          onChange={e => updateWholeFruit(idx, 'name', e.target.value)}
-                          placeholder={`과일 ${idx + 1} 품목명`}
-                          className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
-                        />
-                        <input
-                          type="text"
-                          value={item.price}
-                          onChange={e => updateWholeFruit(idx, 'price', e.target.value)}
-                          placeholder="가격/규격"
-                          className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
-                        />
-                      </div>
-                    ))}
+                  <div>
+                    <label className="block text-xs font-black text-gray-700 mb-1">행사 기간</label>
+                    <input
+                      type="text"
+                      value={eventPeriod}
+                      onChange={e => setEventPeriod(e.target.value)}
+                      placeholder="예: 3월 7일 ~ 3월 14일"
+                      className="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-amber-500 font-bold"
+                    />
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-4 pt-3 border-t">
-                <h4 className="text-xs font-black text-amber-950 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                  📌 세부기간별 상품 입력 (4개 기간별 과일 3종 / 야채 3종)
-                </h4>
+                <div className="space-y-4 pt-3 border-t">
+                  <h4 className="text-xs font-black text-indigo-900 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                    🛒 전기간 상품 입력 (야채 6종 / 과일 3종)
+                  </h4>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {periods.map((p, pIdx) => (
-                    <div key={pIdx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
-                      <span className="text-xs font-black text-indigo-900 bg-white px-2.5 py-1 rounded-md border shadow-xs inline-block">
-                        {p.label}
-                      </span>
-
-                      <div className="space-y-1.5">
-                        <span className="text-[11px] font-bold text-red-600 block">🍎 과일 (3종)</span>
-                        {p.fruit.map((f, fIdx) => (
-                          <div key={fIdx} className="flex gap-1.5">
-                            <input
-                              type="text"
-                              value={f.name}
-                              onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'name', e.target.value)}
-                              placeholder={`과일 ${fIdx + 1} 품목명`}
-                              className="flex-2 px-2 py-1 text-xs border rounded bg-white"
-                            />
-                            <input
-                              type="text"
-                              value={f.price}
-                              onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'price', e.target.value)}
-                              placeholder="가격"
-                              className="flex-1 px-2 py-1 text-xs border rounded bg-white"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[11px] font-bold text-green-700 block">🥦 야채 (3종)</span>
-                        {p.veg.map((v, vIdx) => (
-                          <div key={vIdx} className="flex gap-1.5">
-                            <input
-                              type="text"
-                              value={v.name}
-                              onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'name', e.target.value)}
-                              placeholder={`야채 ${vIdx + 1} 품목명`}
-                              className="flex-2 px-2 py-1 text-xs border rounded bg-white"
-                            />
-                            <input
-                              type="text"
-                              value={v.price}
-                              onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'price', e.target.value)}
-                              placeholder="가격"
-                              className="flex-1 px-2 py-1 text-xs border rounded bg-white"
-                            />
-                          </div>
-                        ))}
-                      </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-green-50/40 p-4 rounded-xl border border-green-200 space-y-2">
+                      <span className="text-xs font-bold text-green-800 block mb-1">🥦 전기간 야채 (총 6개)</span>
+                      {wholeVeg.map((item, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={e => updateWholeVeg(idx, 'name', e.target.value)}
+                            placeholder={`야채 ${idx + 1} 품목명`}
+                            className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                          />
+                          <input
+                            type="text"
+                            value={item.price}
+                            onChange={e => updateWholeVeg(idx, 'price', e.target.value)}
+                            placeholder="가격/규격"
+                            className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                          />
+                        </div>
+                      ))}
                     </div>
-                  ))}
+
+                    <div className="bg-red-50/40 p-4 rounded-xl border border-red-200 space-y-2">
+                      <span className="text-xs font-bold text-red-700 block mb-1">🍎 전기간 과일 (총 3개)</span>
+                      {wholeFruit.map((item, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={e => updateWholeFruit(idx, 'name', e.target.value)}
+                            placeholder={`과일 ${idx + 1} 품목명`}
+                            className="flex-2 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                          />
+                          <input
+                            type="text"
+                            value={item.price}
+                            onChange={e => updateWholeFruit(idx, 'price', e.target.value)}
+                            placeholder="가격/규격"
+                            className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className={`w-full font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 mt-2 text-white ${
-                  editingEventId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'
-                }`}
-              >
-                {editingEventId ? '✏️ 행사 계획 수정 완료하기' : '🎉 행사 계획 등록하기'}
-              </button>
-            </form>
-          </div>
+                <div className="space-y-4 pt-3 border-t">
+                  <h4 className="text-xs font-black text-amber-950 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                    📌 세부기간별 상품 입력 (4개 기간별 과일 3종 / 야채 3종)
+                  </h4>
 
-          <div className="space-y-6">
-            <h3 className="text-sm font-extrabold text-gray-800">📋 등록된 행사 계획 목록 ({events.length}건)</h3>
-            {events.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
-                <p className="text-gray-400 text-sm">등록된 행사 계획이 없습니다.</p>
-              </div>
-            ) : (
-              events.map(ev => {
-                const data = ev.event_data
-                return (
-                  <div key={ev.id} className="bg-white border-2 border-amber-300 rounded-2xl p-5 shadow-sm space-y-4">
-                    <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
-                      <div>
-                        <span className="text-xs font-black text-amber-800 bg-amber-100 px-2.5 py-1 rounded-md">
-                          📅 {ev.period}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {periods.map((p, pIdx) => (
+                      <div key={pIdx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+                        <span className="text-xs font-black text-indigo-900 bg-white px-2.5 py-1 rounded-md border shadow-xs inline-block">
+                          {p.label}
                         </span>
-                        <h4 className="text-lg font-black text-gray-900 mt-1.5">{ev.title}</h4>
-                      </div>
 
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleLoadEventForEdit(ev)}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
-                        >
-                          <span>✏️ 수정</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyEventText(ev)}
-                          className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
-                        >
-                          <span>📋 복사</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteEvent(ev.id)}
-                          className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all"
-                        >
-                          🗑️ 삭제
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-green-50/40 p-3.5 rounded-xl border border-green-200">
-                        <span className="text-xs font-black text-green-800 block mb-2 border-b pb-1">🥦 전기간 야채 (6종)</span>
-                        <div className="space-y-1 text-xs">
-                          {data.wholeVeg?.map((item, i) => (
-                            item.name ? (
-                              <div key={i} className="flex justify-between bg-white px-2.5 py-1 rounded border border-green-100">
-                                <span className="font-bold text-gray-800">· {item.name}</span>
-                                <span className="font-semibold text-green-700">{item.price || '-'}</span>
-                              </div>
-                            ) : null
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-red-50/40 p-3.5 rounded-xl border border-red-200">
-                        <span className="text-xs font-black text-red-700 block mb-2 border-b pb-1">🍎 전기간 과일 (3종)</span>
-                        <div className="space-y-1 text-xs">
-                          {data.wholeFruit?.map((item, i) => (
-                            item.name ? (
-                              <div key={i} className="flex justify-between bg-white px-2.5 py-1 rounded border border-red-100">
-                                <span className="font-bold text-gray-800">· {item.name}</span>
-                                <span className="font-semibold text-red-600">{item.price || '-'}</span>
-                              </div>
-                            ) : null
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 pt-2">
-                      <h5 className="text-xs font-black text-gray-600">📌 세부기간별 상품 (과일 3종 / 야채 3종)</h5>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {data.periods?.map((p, pIdx) => (
-                          <div key={pIdx} className="bg-gray-50 p-3.5 rounded-xl border border-gray-200 space-y-2">
-                            <span className="text-xs font-black text-indigo-700 block border-b pb-1">▪️ {p.label}</span>
-                            <div className="text-xs space-y-1 text-gray-800">
-                              <p className="font-bold text-red-600">🍎 과일:</p>
-                              {p.fruit?.map((f, fi) => f.name ? <p key={fi} className="pl-3">· {f.name} ({f.price || '-'})</p> : null)}
-                              <p className="font-bold text-green-700 pt-1">🥦 야채:</p>
-                              {p.veg?.map((v, vi) => v.name ? <p key={vi} className="pl-3">· {v.name} ({v.price || '-'})</p> : null)}
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold text-red-600 block">🍎 과일 (3종)</span>
+                          {p.fruit.map((f, fIdx) => (
+                            <div key={fIdx} className="flex gap-1.5">
+                              <input
+                                type="text"
+                                value={f.name}
+                                onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'name', e.target.value)}
+                                placeholder={`과일 ${fIdx + 1} 품목명`}
+                                className="flex-2 px-2 py-1 text-xs border rounded bg-white"
+                              />
+                              <input
+                                type="text"
+                                value={f.price}
+                                onChange={e => updatePeriodItem(pIdx, 'fruit', fIdx, 'price', e.target.value)}
+                                placeholder="가격"
+                                className="flex-1 px-2 py-1 text-xs border rounded bg-white"
+                              />
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[11px] font-bold text-green-700 block">🥦 야채 (3종)</span>
+                          {p.veg.map((v, vIdx) => (
+                            <div key={vIdx} className="flex gap-1.5">
+                              <input
+                                type="text"
+                                value={v.name}
+                                onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'name', e.target.value)}
+                                placeholder={`야채 ${vIdx + 1} 품목명`}
+                                className="flex-2 px-2 py-1 text-xs border rounded bg-white"
+                              />
+                              <input
+                                type="text"
+                                value={v.price}
+                                onChange={e => updatePeriodItem(pIdx, 'veg', vIdx, 'price', e.target.value)}
+                                placeholder="가격"
+                                className="flex-1 px-2 py-1 text-xs border rounded bg-white"
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                )
-              })
-            )}
-          </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`w-full font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:bg-gray-400 mt-2 text-white ${
+                    editingEventId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
+                >
+                  {editingEventId ? '✏️ 행사 계획 수정 완료하기' : '🎉 행사 계획 등록하기'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* 3) 지나간 행사 탭 및 복구 기능 */}
+          {eventSubTab === 'ENDED' && (
+            <div className="space-y-6">
+              {events.filter(ev => ev.event_data?.is_ended).length === 0 ? (
+                <div className="text-center py-16 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
+                  <p className="text-gray-400 text-sm">지나간 행사 내역이 없습니다.</p>
+                </div>
+              ) : (
+                events.filter(ev => ev.event_data?.is_ended).map(ev => {
+                  return (
+                    <div key={ev.id} className="bg-gray-50 border-2 border-gray-300 rounded-2xl p-6 shadow-xs space-y-3 opacity-90">
+                      <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
+                        <div>
+                          <span className="text-xs font-black text-gray-600 bg-gray-200 px-3 py-1 rounded-md">
+                            📅 {ev.period} (종료됨)
+                          </span>
+                          <h3 className="text-lg font-black text-gray-800 mt-2">{ev.title}</h3>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleEventEnded(ev, false)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1"
+                          >
+                            <span>↩️ 복구 (현재 행사로 이동)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEvent(ev.id)}
+                            className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition-all"
+                          >
+                            🗑️ 삭제
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">실수로 종료하셨거나 다시 참고해야 할 경우 '복구' 버튼을 누르면 현재 행사 탭으로 되돌아갑니다.</p>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
         </div>
       )}
 
