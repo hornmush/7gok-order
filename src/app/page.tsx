@@ -138,7 +138,7 @@ export default function Home() {
     { label: '4차 (금~토~일)', fruit: Array(3).fill({ name: '', price: '' }), veg: Array(3).fill({ name: '', price: '' }) },
   ])
 
-  // 지나간 행사 펼쳐보기 상태 관리 (ID별 토글)
+  // 지나간 행사 펼쳐보기 상태 관리
   const [expandedEndedIds, setExpandedEndedIds] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
@@ -399,6 +399,7 @@ export default function Home() {
     const { error } = await supabase.from('orders').insert(ordersData)
     setLoading(false)
     const wasEditing = Boolean(editingOriginalTime)
+    const timeSlug = formatDateTime(targetCreatedAt).replace(/[^0-9]/g, '')
     setEditingOriginalTime(null)
 
     if (error) {
@@ -408,6 +409,9 @@ export default function Home() {
       alert(wasEditing ? '✅ 발주 내역이 성공적으로 수정되었습니다!' : '발주 요청이 성공적으로 등록되었습니다!')
       setOrderInputs({})
       handleTabChange('BOARD')
+      setTimeout(() => {
+        window.location.hash = `order-group-${timeSlug}`
+      }, 150)
     }
   }
 
@@ -630,11 +634,11 @@ export default function Home() {
     text += `--- [전기간 상품] ---\n`
     text += `🥦 야채 (6종):\n`
     data.wholeVeg?.forEach((item, idx) => {
-      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price || '-'}\n`
+      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price ? formatDisplayPrice(item.price) : '-'}\n`
     })
     text += `🍎 과일 (3종):\n`
     data.wholeFruit?.forEach((item, idx) => {
-      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price || '-'}\n`
+      if (item.name) text += `  ${idx + 1}. ${item.name} : ${item.price ? formatDisplayPrice(item.price) : '-'}\n`
     })
 
     text += `\n--- [기간별 상품] ---\n`
@@ -642,11 +646,11 @@ export default function Home() {
       text += `[${p.label}]\n`
       text += `  🍎 과일:\n`
       p.fruit?.forEach((f) => {
-        if (f.name) text += `    - ${f.name} (${f.price || '-'})\n`
+        if (f.name) text += `    - ${f.name} (${f.price ? formatDisplayPrice(f.price) : '-'})\n`
       })
       text += `  🥦 야채:\n`
       p.veg?.forEach((v) => {
-        if (v.name) text += `    - ${v.name} (${v.price || '-'})\n`
+        if (v.name) text += `    - ${v.name} (${v.price ? formatDisplayPrice(v.price) : '-'})\n`
       })
     })
 
@@ -709,7 +713,7 @@ export default function Home() {
     setOrderInputs(newInputs)
     setEditingOriginalTime(itemsList[0]?.created_at || null)
     handleTabChange('WRITE')
-    alert('📝 해당 발주 기록을 수정 모드로 불러왔습니다! 저장 시 기존 링크와 위치가 유지된 채 수정됩니다.')
+    alert('📝 해당 발주 기록을 수정 모드로 불러왔습니다! 저장 시 기존 링크와 위치가 고정된 채 수정됩니다.')
   }
 
   const handleDeleteOrderBatch = async (itemsList: OrderRecord[]) => {
@@ -756,6 +760,15 @@ export default function Home() {
     const date = new Date(isoString)
     date.setHours(date.getHours() + 9)
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  }
+
+  // 가격 자동 포맷팅 및 '원' 자동 추가 헬퍼 함수
+  const formatDisplayPrice = (val: string) => {
+    if (!val || val.trim() === '') return '-'
+    const numbersOnly = val.replace(/[^0-9]/g, '')
+    if (!numbersOnly) return val // 사용자가 문자열 위주로 적었을 경우 그대로 표시
+    const formattedNum = Number(numbersOnly).toLocaleString()
+    return val.includes('원') ? `${formattedNum}원` : `${formattedNum}원`
   }
 
   const filteredOrderHistory = orderHistory.filter(order => {
@@ -1015,26 +1028,26 @@ export default function Home() {
   const currentItemSelected = items.find(i => i.id === selectedChartItemId)
   const filteredPricesForChart = priceHistory.filter(p => p.item_id === selectedChartItemId)
 
-  // 가독성 높인 행사 상세 카드 컴포넌트 렌더링 함수
+  // 행사 카드 상세 가독성 대폭 향상 (폰트 크기 및 '원' 자동 적용)
   const renderEventCardDetails = (data: EventRecord['event_data']) => (
     <div className="space-y-5 mt-4 pt-4 border-t border-amber-200">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* 전기간 야채 */}
-        <div className="bg-gradient-to-br from-green-50/80 to-emerald-50/40 p-4 rounded-2xl border border-green-200 shadow-2xs">
+        <div className="bg-gradient-to-br from-green-50/90 to-emerald-50/50 p-4 rounded-2xl border border-green-300 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-green-200 pb-2">
             <span className="text-xs font-black text-green-900 flex items-center space-x-1">
               <span>🥦 전기간 야채 품목</span>
             </span>
             <span className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold">총 6종</span>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {data.wholeVeg?.map((item, i) => (
-              <div key={i} className={`flex justify-between items-center px-3 py-2 rounded-xl border ${item.name ? 'bg-white border-green-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
-                <span className={`font-bold text-xs ${item.name ? 'text-gray-800' : 'text-gray-300'}`}>
+              <div key={i} className={`flex justify-between items-center px-3.5 py-2.5 rounded-xl border ${item.name ? 'bg-white border-green-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
+                <span className={`font-extrabold text-sm ${item.name ? 'text-gray-900' : 'text-gray-300'}`}>
                   {item.name ? `${i + 1}. ${item.name}` : `${i + 1}. (미등록)`}
                 </span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${item.name ? 'bg-green-100 text-green-800' : 'text-gray-300'}`}>
-                  {item.price || '-'}
+                <span className={`text-sm font-black px-3 py-1 rounded-lg ${item.name ? 'bg-green-100 text-green-800 border border-green-200' : 'text-gray-300'}`}>
+                  {formatDisplayPrice(item.price)}
                 </span>
               </div>
             ))}
@@ -1042,21 +1055,21 @@ export default function Home() {
         </div>
 
         {/* 전기간 과일 */}
-        <div className="bg-gradient-to-br from-red-50/80 to-rose-50/40 p-4 rounded-2xl border border-red-200 shadow-2xs">
+        <div className="bg-gradient-to-br from-red-50/90 to-rose-50/50 p-4 rounded-2xl border border-red-300 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-red-200 pb-2">
             <span className="text-xs font-black text-red-900 flex items-center space-x-1">
               <span>🍎 전기간 과일 품목</span>
             </span>
             <span className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold">총 3종</span>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {data.wholeFruit?.map((item, i) => (
-              <div key={i} className={`flex justify-between items-center px-3 py-2 rounded-xl border ${item.name ? 'bg-white border-red-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
-                <span className={`font-bold text-xs ${item.name ? 'text-gray-800' : 'text-gray-300'}`}>
+              <div key={i} className={`flex justify-between items-center px-3.5 py-2.5 rounded-xl border ${item.name ? 'bg-white border-red-200 shadow-2xs' : 'bg-gray-50/50 border-gray-200 text-gray-300'}`}>
+                <span className={`font-extrabold text-sm ${item.name ? 'text-gray-900' : 'text-gray-300'}`}>
                   {item.name ? `${i + 1}. ${item.name}` : `${i + 1}. (미등록)`}
                 </span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${item.name ? 'bg-red-100 text-red-700' : 'text-gray-300'}`}>
-                  {item.price || '-'}
+                <span className={`text-sm font-black px-3 py-1 rounded-lg ${item.name ? 'bg-red-100 text-red-700 border border-red-200' : 'text-gray-300'}`}>
+                  {formatDisplayPrice(item.price)}
                 </span>
               </div>
             ))}
@@ -1071,29 +1084,29 @@ export default function Home() {
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {data.periods?.map((p, pIdx) => (
-            <div key={pIdx} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3 shadow-2xs">
+            <div key={pIdx} className="bg-gray-50/80 p-4 rounded-2xl border border-gray-200 space-y-3 shadow-2xs">
               <div className="border-b border-gray-200 pb-2">
-                <span className="text-xs font-black text-indigo-700 bg-white px-2.5 py-1 rounded-md border shadow-2xs inline-block">
+                <span className="text-xs font-black text-indigo-700 bg-white px-3 py-1 rounded-md border shadow-2xs inline-block">
                   {p.label}
                 </span>
               </div>
-              <div className="space-y-3 text-xs">
-                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-2xs space-y-1.5">
-                  <span className="font-extrabold text-red-600 block text-[11px] pb-1 border-b border-red-50">🍎 과일류 (3종)</span>
+              <div className="space-y-3 text-sm">
+                <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs space-y-2">
+                  <span className="font-black text-red-600 block text-xs pb-1.5 border-b border-red-100">🍎 과일류 (3종)</span>
                   {p.fruit?.map((f, fi) => (
-                    <div key={fi} className={`flex justify-between py-1 px-1.5 rounded ${f.name ? 'bg-red-50/30 font-bold text-gray-800' : 'text-gray-300'}`}>
-                      <span>{f.name ? `· ${f.name}` : `-`}</span>
-                      <span className="font-semibold text-red-600">{f.price || '-'}</span>
+                    <div key={fi} className={`flex justify-between items-center py-1.5 px-2 rounded-lg ${f.name ? 'bg-red-50/40 font-extrabold text-gray-900' : 'text-gray-300'}`}>
+                      <span className="text-xs">{f.name ? `· ${f.name}` : `-`}</span>
+                      <span className="font-black text-red-600 text-xs sm:text-sm">{formatDisplayPrice(f.price)}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-2xs space-y-1.5">
-                  <span className="font-extrabold text-green-700 block text-[11px] pb-1 border-b border-green-50">🥦 야채류 (3종)</span>
+                <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs space-y-2">
+                  <span className="font-black text-green-700 block text-xs pb-1.5 border-b border-green-100">🥦 야채류 (3종)</span>
                   {p.veg?.map((v, vi) => (
-                    <div key={vi} className={`flex justify-between py-1 px-1.5 rounded ${v.name ? 'bg-green-50/30 font-bold text-gray-800' : 'text-gray-300'}`}>
-                      <span>{v.name ? `· ${v.name}` : `-`}</span>
-                      <span className="font-semibold text-green-700">{v.price || '-'}</span>
+                    <div key={vi} className={`flex justify-between items-center py-1.5 px-2 rounded-lg ${v.name ? 'bg-green-50/40 font-extrabold text-gray-900' : 'text-gray-300'}`}>
+                      <span className="text-xs">{v.name ? `· ${v.name}` : `-`}</span>
+                      <span className="font-black text-green-700 text-xs sm:text-sm">{formatDisplayPrice(v.price)}</span>
                     </div>
                   ))}
                 </div>
@@ -1112,7 +1125,6 @@ export default function Home() {
         <p className="text-xs text-gray-500 mt-1">품목 선택, 발주 관리, 주별 통계, 시세 차트, 행사 관리 및 재고 파악을 할 수 있습니다.</p>
       </div>
 
-      {/* 🌤️ 대구 칠곡 지역 '내일 날씨' 위젯 */}
       <div className="bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-2xl p-3.5 mb-6 shadow-md flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <span className="text-2xl">📍</span>
@@ -1125,7 +1137,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 상단 메인 탭 네비게이션 */}
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-6">
         <button
           type="button"
@@ -1206,7 +1217,7 @@ export default function Home() {
 
           {editingOriginalTime && (
             <div className="bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl mb-4 flex items-center justify-between shadow-sm">
-              <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (링크 및 위치가 그대로 유지됩니다)</span>
+              <span className="text-xs font-black text-amber-900">✏️ 기존 발주 수정 중입니다 (링크 및 위치가 고정됩니다)</span>
               <button
                 type="button"
                 onClick={() => { setEditingOriginalTime(null); setOrderInputs({}); }}
@@ -1514,9 +1525,10 @@ export default function Home() {
               const ordererNameTag = itemsList[0]?.orderer || '익명'
               const isCompleted = itemsList[0]?.is_completed || false
               const hasUnassigned = itemsList.some(o => !o.vendor || o.vendor === '미지정')
+              const timeSlug = timeKey.replace(/[^0-9]/g, '')
 
               return (
-                <div key={timeKey}>
+                <div key={timeKey} id={`order-group-${timeSlug}`}>
                   {showDateDivider && (
                     <div className={`my-6 pt-4 flex items-center ${index > 0 ? 'border-t-2 border-dashed border-gray-300' : ''}`}>
                       <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg shadow-xs">
@@ -1697,7 +1709,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📦 재고파악 탭 영역 */}
       {mainTab === 'STOCK' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center mb-2">
@@ -2204,14 +2215,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* 🎪 행사관리 탭 (하위탭: 현재 행사 / 행사 작성 / 지나간 행사) */}
       {mainTab === 'EVENT' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
             <span>🎉 농산팀 행사 계획 및 가독성 개선 관리</span>
           </h2>
 
-          {/* 행사 하위 탭 네비게이션 */}
           <div className="grid grid-cols-3 gap-2 bg-gray-100 p-1.5 rounded-xl shadow-inner">
             <button
               type="button"
@@ -2242,7 +2251,6 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 1) 현재 행사 탭 */}
           {eventSubTab === 'CURRENT' && (
             <div className="space-y-6">
               {events.filter(ev => !ev.event_data?.is_ended).length === 0 ? (
@@ -2302,7 +2310,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* 2) 행사 작성 및 수정 탭 */}
           {eventSubTab === 'WRITE' && (
             <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
               <div className="flex justify-between items-center border-b pb-3">
@@ -2365,7 +2372,7 @@ export default function Home() {
                             type="text"
                             value={item.price}
                             onChange={e => updateWholeVeg(idx, 'price', e.target.value)}
-                            placeholder="가격/규격"
+                            placeholder="가격 (숫자 입력시 자동 '원')"
                             className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
                           />
                         </div>
@@ -2387,7 +2394,7 @@ export default function Home() {
                             type="text"
                             value={item.price}
                             onChange={e => updateWholeFruit(idx, 'price', e.target.value)}
-                            placeholder="가격/규격"
+                            placeholder="가격 (숫자 입력시 자동 '원')"
                             className="flex-1 px-2.5 py-1.5 text-xs border rounded-lg bg-white font-medium"
                           />
                         </div>
@@ -2469,7 +2476,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* 3) 지나간 행사 탭 및 펼쳐보기 기능 */}
           {eventSubTab === 'ENDED' && (
             <div className="space-y-6">
               {events.filter(ev => ev.event_data?.is_ended).length === 0 ? (
@@ -2516,7 +2522,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* 펼쳐보기 상태일 때만 상세 내역 렌더링 */}
                       {isExpanded ? (
                         renderEventCardDetails(ev.event_data)
                       ) : (
